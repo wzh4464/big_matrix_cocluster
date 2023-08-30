@@ -64,18 +64,18 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     return min(s)
 
 
-def coclusterAtom(X, tor, k) -> list:
+def coclusterAtom(X, tor, k, M, N) -> list:
     '''
     cocluster the data matrix X, especially for the case when X is a `atom` matrix
     input:
-        X: data matrix
+        X: object submatrix
         tor: threshold
         k: number of clusters
     output:
         biclusterList: list of biclusters
     '''
 
-    U, S, Vh = svd(X, full_matrices=False)
+    U, S, Vh = svd(X.matrix, full_matrices=False)
 
     # [row_idx, row_cluster, row_dist, row_sumd] = kmeans(U, k);
     # [col_idx, col_cluster, col_dist, col_sumd] = kmeans(V, k);
@@ -86,17 +86,23 @@ def coclusterAtom(X, tor, k) -> list:
 
     # print('row_idx', row_idx)
     # print('col_idx', col_idx)
-    scoreMat = compute_scoreMat(k=k, X=X, row_idx=row_idx, col_idx=col_idx)
+    scoreMat = compute_scoreMat(k=k, X=X.matrix, row_idx=row_idx, col_idx=col_idx)
 
     biclusterList = []
     for i in range(k):
         for j in range(k):
             if scoreMat[i, j] < tor:
+                # initialize rowIdx to be a boolean array with all False, length = M
+                rowIdx = np.zeros(shape=(M,), dtype=bool)
+                colIdx = np.zeros(shape=(N,), dtype=bool)
+                
+                rowIdx[X.startx : X.startx + X.matrix.shape[0]] = row_idx == i
+                colIdx[X.starty : X.starty + X.matrix.shape[1]] = col_idx == j
+                
                 bicluster = bc.bicluster(
-                    row_idx=row_idx == i,
-                    col_idx=col_idx == j,
-                    score=scoreMat[i, j],
-                    data=X[row_idx == i, :][:, col_idx == j]
+                    row_idx=rowIdx,
+                    col_idx=colIdx,
+                    score=scoreMat[i, j]
                 )
                 biclusterList.append(bicluster)
     return biclusterList
