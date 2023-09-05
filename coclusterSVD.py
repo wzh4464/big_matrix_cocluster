@@ -23,10 +23,10 @@ import bicluster as bc
 
 
 def scoreHelper(length, C) -> ndarray:
-    '''
+    """
     helper function for score
     $$ s_i = 1 - \frac{1}{n-1} \sum_{j=1}^n |c_{ij}| $$
-    '''
+    """
     # check if there is nan in C
     if np.isnan(C).any():
         # throw exception
@@ -35,7 +35,7 @@ def scoreHelper(length, C) -> ndarray:
 
 
 def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
-    '''
+    """
     Compute the compatibility for submatrix X_IJ
     input:
         X: the data matrix
@@ -43,20 +43,37 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
         J: the column cluster assignment; J is boolean array.
     output:
         s: the compatibility score
-    '''
+    """
     lenI = sum(a=subrowI)
-    if not isinstance(lenI, int):
+    if not isinstance(lenI, np.integer):
         raise TypeError("Expected an integer value for lenI")
     lenJ = sum(a=subcolJ)
-    if not isinstance(lenJ, int):
+    if not isinstance(lenJ, np.integer):
         raise TypeError("Expected an integer value for lenJ")
-    
-    S1: np.ndarray = abs(
-        corrcoef(X[subrowI, :][:, subcolJ], rowvar=False) - eye(lenJ)
+
+    # See each column as a vector,
+    # and compute the correlation between each pair of columns
+    subX = X[np.ix_(subrowI, subcolJ)]
+
+    # Adding a small noise to constant columns
+    std_devs = np.std(subX, axis=0)
+    std_devs_y = np.std(subX.T, axis=0)
+    constant_columns = std_devs == 0
+    constant_rows = std_devs_y == 0
+    subX[:, constant_columns] += 1e-4 * np.random.rand(
+        subX.shape[0], np.sum(constant_columns)
     )
-    S2: np.ndarray = abs(
-        corrcoef(X[subrowI, :][:, subcolJ].T, rowvar=False) - eye(lenI)
+    subX[constant_rows, :] += 1e-4 * np.random.rand(
+        np.sum(constant_rows), subX.shape[1]
     )
+
+    SS1: np.ndarray = abs(corrcoef(subX, rowvar=False) - eye(lenJ))
+    SS2: np.ndarray = abs(corrcoef(subX.T, rowvar=False) - eye(lenI))
+    # Pearson correlation fails when there is constant vectors
+    # Thus check the NaN and redo the computation
+
+    S1 = corHelper(SS1, subX)
+    S2 = corHelper(SS2, subX.T)
 
     s1 = scoreHelper(length=lenJ, C=S1)
     s2 = scoreHelper(length=lenI, C=S2)
@@ -67,8 +84,34 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     return min(s)
 
 
+def corHelper(SS, X):
+    """
+    helper function for correlation matrix
+    """
+    isNaNMat = np.isnan(SS)
+    S = SS
+    # recomputer the correlation matrix element if it is NaN
+    for i in range(isNaNMat.shape[0]):
+        for j in range(isNaNMat.shape[1]):
+            if isNaNMat[i, j]:
+                # let flag1 & flag2 tells if the ith column and jth column are constant
+                flag1 = np.all(X[:, i] == X[:, i][0])
+                flag2 = np.all(X[:, j] == X[:, j][0])
+                if flag1 and flag2:
+                    if i == j:
+                        S[i, j] = 0
+                    else:
+                        S[i, j] = 1
+                elif flag1 or flag2:
+                    S[i, j] = 0
+                else:
+                    raise Exception("Error: NaN in correlation matrix (corHelper)")
+
+    return S
+
+
 def coclusterAtom(X, tor, k, M, N) -> list:
-    '''
+    """
     cocluster the data matrix X, especially for the case when X is a `atom` matrix
     input:
         X: object submatrix
@@ -76,7 +119,7 @@ def coclusterAtom(X, tor, k, M, N) -> list:
         k: number of clusters
     output:
         biclusterList: list of biclusters
-    '''
+    """
 
     U, S, Vh = svd(X.matrix, full_matrices=False)
 
@@ -98,20 +141,19 @@ def coclusterAtom(X, tor, k, M, N) -> list:
                 # initialize rowIdx to be a boolean array with all False, length = M
                 rowIdx = np.zeros(shape=(M,), dtype=bool)
                 colIdx = np.zeros(shape=(N,), dtype=bool)
-                
+
                 rowIdx[X.startx : X.startx + X.matrix.shape[0]] = row_idx == i
                 colIdx[X.starty : X.starty + X.matrix.shape[1]] = col_idx == j
-                
+
                 bicluster = bc.bicluster(
-                    row_idx=rowIdx,
-                    col_idx=colIdx,
-                    score=scoreMat[i, j]
+                    row_idx=rowIdx, col_idx=colIdx, score=scoreMat[i, j]
                 )
                 biclusterList.append(bicluster)
     return biclusterList
 
+
 def compute_scoreMat(k, X, row_idx, col_idx):
-    '''
+    """
     compute the score matrix
     input:
         k: number of clusters
@@ -120,7 +162,7 @@ def compute_scoreMat(k, X, row_idx, col_idx):
         col_idx: column cluster assignment
     output:
         scoreMat: score matrix
-    '''
+    """
     scoreMat = zeros(shape=(k, k)) * NaN
     for i in range(k):
         for j in range(k):
@@ -133,7 +175,7 @@ def compute_scoreMat(k, X, row_idx, col_idx):
     # show the score matrix
     # plt.imshow(scoreMat, cmap="hot", interpolation="nearest")
     # plt.show()
-    
+
     # print number of each cluster
     # print('number of x clusters')
     # for i in range(k):
@@ -141,13 +183,14 @@ def compute_scoreMat(k, X, row_idx, col_idx):
     # print('number of y clusters')
     # for i in range(k):
     #     print('cluster', i, ':', sum(a=col_idx == i))
-    
+
     return scoreMat
 
-def isBiclusterIntersectGeneral(bc1 : bc.bicluster, bc2 : bc.bicluster) -> bool:
-    '''
+
+def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
+    """
     check if two biclusters intersect
     well, in generalized meaning, two biclusters intersect if and only if
     their row_idx and col_idx has at least one common element
-    '''
+    """
     return (bc1.row_idx & bc2.row_idx).any() and (bc1.col_idx & bc2.col_idx).any()
