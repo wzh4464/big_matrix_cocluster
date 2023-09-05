@@ -44,10 +44,13 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     output:
         s: the compatibility score
     '''
+    lenI = sum(a=subrowI)
+    if not isinstance(lenI, int):
+        raise TypeError("Expected an integer value for lenI")
+    lenJ = sum(a=subcolJ)
+    if not isinstance(lenJ, int):
+        raise TypeError("Expected an integer value for lenJ")
     
-    lenI: np.ndarray = sum(a=subrowI)
-    lenJ: np.ndarray = sum(a=subcolJ)
-
     S1: np.ndarray = abs(
         corrcoef(X[subrowI, :][:, subcolJ], rowvar=False) - eye(lenJ)
     )
