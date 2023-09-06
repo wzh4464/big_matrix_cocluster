@@ -1,0 +1,24 @@
+{
+	"files": [
+		{
+			"path": "coclusterSVD.py",
+			"bookmarks": [
+				{
+					"line": 112,
+					"column": 43,
+					"label": "coclusterAtom-function"
+				}
+			]
+		},
+		{
+			"path": "main.ipynb",
+			"bookmarks": [
+				{
+					"line": 30,
+					"column": 33,
+					"label": "submatrix赋值"
+				}
+			]
+		}
+	]
+}
