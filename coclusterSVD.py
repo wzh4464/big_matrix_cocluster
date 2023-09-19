@@ -9,6 +9,8 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+
+19-09-2023		Zihan	Add Tp to calculate the number of times of re-partitioning
 12-09-2023		Zihan	Added tailPar
 30-08-2023		Zihan	Documented
 30-08-2023	    Zihan   isBiclusterIntersect
@@ -22,7 +24,7 @@ from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import bicluster as bc
 import matplotlib.pyplot as plt
-
+from scipy.stats import hypergeom
 
 def scoreHelper(length, C) -> ndarray:
     """
@@ -277,7 +279,7 @@ def tailPar(partNum, totalNum, threshold, blockSize):
         raise TypeError("blockSize should be either a integer or a numpy array")
     return tailProb
 
-def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
+def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
     '''
     This function tells after Tp times of re-partitioning, 
     will the bicluster labeled by `label` be found
@@ -292,7 +294,7 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
         label: label of the bicluster
         
     output:
-        isFound: if the bicluster is found
+        number of times of re-partitioning that the bicluster is found
     '''
     M, N = A.shape
     
@@ -320,7 +322,8 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
             for k in range(psi.shape[0]):
                 # partition the matrix
                 # subA = A[permx[j*phi[j]:(j+1)*phi[j]], permy[k*psi[k]:(k+1)*psi[k]]]
-                subA = A[np.ix_(permx[j*phi[j]:(j+1)*phi[j]], permy[k*psi[k]:(k+1)*psi[k]])]
+                subA = A[np.ix_(permx[j*phi[j]:(j+1)*phi[j]], 
+                                permy[k*psi[k]:(k+1)*psi[k]])]
                 # compute the number of partitions
                 # plt.imshow(subA, cmap="hot", interpolation="nearest")
                 # plt.show()
@@ -352,3 +355,25 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
         # print("count", count)
         # print("i", i)
     return Tp
+
+def Tp(ranges, phi=100, Tm=4, M=1000):
+    # phi = 100
+    # Tm = 4
+    # M = 1000
+    m = M / phi
+    
+    def q(Mk):
+        return hypergeom.cdf(Tm - 1, M, phi, Mk)
+    
+    def qq(Mk):
+        return (1 - (1 - q(Mk)) ** 2) ** (m ** 2)
+    
+    def Tp_Mk(Mk):
+        return np.log(0.01) / np.log(qq(Mk))
+
+    # ceil and convert to int
+    return np.ceil([Tp_Mk(Mk) for Mk in ranges]).astype(int)
+
+if __name__ == "__main__":
+    result = Tp(range(10, 25, 2))
+    print(result)
