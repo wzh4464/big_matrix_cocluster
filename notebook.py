@@ -69,7 +69,7 @@ pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
 results = pool.starmap(ccSVD.find_bicluster_count, 
                        [(generate(seed=seed, num_bicluster=K, 
                                   M=M, N=N, m=[x.Mk]*K, n=[x.Mk]*K)[3],
-                                    x.Tp, Tm, Tn, phi, psi, 1000) for x in TpList])
+                                    x.Tp, Tm, Tn, phi, psi, 100) for x in TpList])
 # results = pool.map(Tp_cal, Tp_list)
 # results = pool.map(find_bicluster_count, 
 #                       [A]*len(Tp_list), Tp_list, [Tm]*len(Tp_list), [Tn]*len(Tp_list),
