@@ -439,5 +439,5 @@ class TpPair:
         return len(self.Mk)
 
 if __name__ == "__main__":
-    result = Tp(range(10, 25, 2))
-    print(result)
+    Tp_list = Tp(range(10, 24, 2), phi=100, Tm=7, M=1000)
+    print(Tp_list)
