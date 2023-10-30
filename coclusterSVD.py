@@ -9,7 +9,7 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
-
+30-10-2023		Zihan	add imageShowBicluster
 30-10-2023		Zihan	Add saveNewMat
 30-10-2023		Zihan	Add scoreInd
 19-09-2023		Zihan	Add Tp to calculate the number of times of re-partitioning
@@ -26,6 +26,7 @@ import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import os
+import matplotlib.pyplot as plt
 # from . import bicluster as bc
 
 if __name__ == "__main__":
@@ -46,8 +47,9 @@ class coclusterer:
     N: int
     biclusterList: list
     newMat: np.ndarray
+    debug: bool = False
 
-    def __init__(self, matrix: np.ndarray, M: int, N: int):
+    def __init__(self, matrix: np.ndarray, M: int, N: int, debug: bool = False):
         """
         input:
             matrix: data matrix
@@ -60,6 +62,7 @@ class coclusterer:
         self.biclusterList = []
         # set self.newMat not callable yet
         self.newMat = None
+        self.debug = debug
 
     def cocluster(self, tor: float, k1: int, k2: int, atomOrNot: bool = False):
         if atomOrNot:
@@ -74,7 +77,16 @@ class coclusterer:
             pass
 
         return self.biclusterList
-    
+
+    def printBiclusterList(self):
+        for i in range(len(self.biclusterList)):
+            print("bicluster", i)
+            print("row members", self.biclusterList[i].row_bi_labels)
+            print("col members", self.biclusterList[i].col_bi_labels)
+            print("score", self.biclusterList[i].score)
+            # print ------
+            print("------")
+
     def saveNewMat(self, filename):
         # np.save(filename, self.newMat)
         # if no such path, then create it
@@ -95,6 +107,10 @@ class coclusterer:
 
         U, S, Vh = svd(self.matrix, full_matrices=False)
 
+        if self.debug:
+            # print S
+            print("S", S)
+
         # [row_idx, row_cluster, row_dist, row_sumd] = kmeans(U, k);
         # [col_idx, col_cluster, col_dist, col_sumd] = kmeans(V, k);
         kmeans_U = KMeans(n_clusters=k1, random_state=0,
@@ -104,6 +120,18 @@ class coclusterer:
         )
         row_idx = kmeans_U.labels_
         col_idx = kmeans_V.labels_
+
+        # if self.debug:
+        #     print("row_idx", row_idx)
+        #     print("col_idx", col_idx)
+        #     # print matrix at (20:25) * (15:20)
+        #     print("matrix at (20:25) * (15:20)")
+        #     print(self.matrix[20:25, 15:20])
+
+        #     # print label of matrix at (20:25) * (15:20)
+        #     print("label of matrix at (20:25) * (15:20)")
+        #     print(row_idx[20:25])
+        #     print(col_idx[15:20])
 
         # re-order the row_idx and col_idx
         self.newMat = self.matrix.copy()
@@ -145,11 +173,54 @@ class coclusterer:
                         biclusterList.append(bicluster)
 
                     else:
-                        print("rowTrueNum", rowTrueNum)
-                        print("colTrueNum", colTrueNum)
+                        # if self.debug:
+                        #     print("rowTrueNum", rowTrueNum)
+                        #     print("colTrueNum", colTrueNum)
                         pass
 
         return biclusterList
+
+    def imageShowBicluster(self, *args, **kwargs):
+        """
+        show/save every bicluster in a matrix using plt
+        e.g imageShowBicluster(save = True, filename = "result/nturgb.png")
+        or  imageShowBicluster(save = False)
+        """
+
+        # if no bicluster, then return
+        if len(self.biclusterList) == 0:
+            return None
+
+        # plt
+        canvas = np.zeros(shape=(self.M, self.N))
+        for i in range(len(self.biclusterList)):
+            canvas[np.ix_(self.biclusterList[i].row_idx,
+                          self.biclusterList[i].col_idx)] = i + 1
+
+        # use subplot to show the original matrix and the new matrix
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        im1 = ax1.imshow(self.matrix, cmap="hot", interpolation="nearest")
+        im2 = ax2.imshow(canvas, cmap="hot", interpolation="nearest")
+
+        # add colorbars
+        fig.colorbar(im1, ax=ax1)
+        fig.colorbar(im2, ax=ax2)
+
+        plt.show()
+
+        # if save is True, then save the image
+        if kwargs.get("save", True):
+            filename = kwargs.get("filename", "result/nturgb.png")
+            # if no such path, then create it
+            if not os.path.exists(os.path.dirname(filename)):
+                os.makedirs(os.path.dirname(filename))
+            plt.savefig(filename)
+
+        # if save is False, then show the image
+        else:
+            plt.show()
+
+        return canvas
 
 
 def scoreHelper(length, C) -> ndarray:
