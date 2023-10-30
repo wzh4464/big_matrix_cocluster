@@ -9,6 +9,8 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+
+30-10-2023		Zihan	Add saveNewMat
 30-10-2023		Zihan	Add scoreInd
 19-09-2023		Zihan	Add Tp to calculate the number of times of re-partitioning
 12-09-2023		Zihan	Added tailPar
@@ -23,6 +25,7 @@ from numpy import NaN, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
+import os
 # from . import bicluster as bc
 
 if __name__ == "__main__":
@@ -71,6 +74,13 @@ class coclusterer:
             pass
 
         return self.biclusterList
+    
+    def saveNewMat(self, filename):
+        # np.save(filename, self.newMat)
+        # if no such path, then create it
+        if not os.path.exists(os.path.dirname(filename)):
+            os.makedirs(os.path.dirname(filename))
+        np.save(filename, self.newMat)
 
     def coclusterAtom(self, tor, k1, k2, X):
         """
