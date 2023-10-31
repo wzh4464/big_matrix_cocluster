@@ -21,24 +21,28 @@ Date      		By   	Comments
 """
 
 # define class coclusterSVD with only methods (score, scoreHelper)
+from scipy.stats import hypergeom
+import big_matrix_cocluster.submatrix as sm
+import big_matrix_cocluster.bicluster as bc
 from numpy import NaN, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import os
 import matplotlib.pyplot as plt
+import multiprocessing as mp
+# from line_profiler import LineProfiler
+import time
+from tqdm import tqdm
+
+DEBUG = True
+
 # from . import bicluster as bc
 
 if __name__ == "__main__":
     import sys
     sys.path.append("..")
     # solve the relative import problem
-
-import big_matrix_cocluster.bicluster as bc
-import big_matrix_cocluster.submatrix as sm
-
-# import matplotlib.pyplot as plt
-from scipy.stats import hypergeom
 
 
 class coclusterer:
@@ -78,7 +82,7 @@ class coclusterer:
 
         return self.biclusterList
 
-    def printBiclusterList(self):
+    def printBiclusterList(self, save=False) -> list:
         for i in range(len(self.biclusterList)):
             print("bicluster", i)
             print("row members", self.biclusterList[i].row_bi_labels)
@@ -86,6 +90,23 @@ class coclusterer:
             print("score", self.biclusterList[i].score)
             # print ------
             print("------")
+        if save:
+            # save to result/biclusterList.txt
+            path = "result/biclusterList.txt"
+            if not os.path.exists(os.path.dirname(path)):
+                os.makedirs(os.path.dirname(path))
+            with open(path, "w") as f:
+                for i in range(len(self.biclusterList)):
+                    f.write("bicluster " + str(i) + "\n")
+                    f.write("row members " +
+                            str(self.biclusterList[i].row_bi_labels) + "\n")
+                    f.write("col members " +
+                            str(self.biclusterList[i].col_bi_labels) + "\n")
+                    f.write("score " + str(self.biclusterList[i].score) + "\n")
+                    # print ------
+                    f.write("------" + "\n")
+
+        return self.biclusterList
 
     def saveNewMat(self, filename):
         # np.save(filename, self.newMat)
@@ -94,7 +115,7 @@ class coclusterer:
             os.makedirs(os.path.dirname(filename))
         np.save(filename, self.newMat)
 
-    def coclusterAtom(self, tor, k1, k2, X):
+    def coclusterAtom(self, tor, k1, k2, X, PARALLEL=False):
         """
         cocluster the data matrix X, especially for the case when X is a `atom` matrix
         input:
@@ -146,7 +167,8 @@ class coclusterer:
         # print('row_idx', row_idx)
         # print('col_idx', col_idx)
         scoreMat = compute_scoreMat(
-            k1=k1, k2=k2, X=self.matrix, row_idx=row_idx, col_idx=col_idx)
+            k1=k1, k2=k2, X=self.matrix, row_idx=row_idx, col_idx=col_idx, PARALLEL=PARALLEL
+        )
 
         biclusterList = []
         for i in range(k1):
@@ -190,6 +212,10 @@ class coclusterer:
         # if no bicluster, then return
         if len(self.biclusterList) == 0:
             return None
+
+        # Set the font size and DPI
+        plt.rcParams['font.size'] = 6  # very small font
+        plt.rcParams['figure.dpi'] = 300  # very high dpi
 
         # plt
         canvas = np.zeros(shape=(self.M, self.N))
@@ -268,6 +294,10 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     output:
         s: the compatibility score
     """
+
+    if DEBUG:
+        start = time.time()
+
     lenI = sum(a=subrowI)
     if not isinstance(lenI, np.integer):
         raise TypeError("Expected an integer value for lenI")
@@ -330,6 +360,33 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     # cat s1 and s2 into a vector
     s = np.concatenate((s1, s2), axis=0)
 
+    if DEBUG:
+        end = time.time()
+        score_time = end - start
+        path = "result/score_.txt"
+        if not os.path.exists(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path))
+        
+        if score_time > 100:
+            submatrix = X[np.ix_(subrowI, subcolJ)]
+            # np.save("result/submatrix_0.npy", submatrix)
+            # save, if submatrix_0.npy is already exist, then save to submatrix_1.npy
+            i = 0
+            while os.path.exists("result/submatrix_" + str(i) + ".npy"):
+                i += 1
+            np.save("result/submatrix_" + str(i) + ".npy", submatrix)
+            # save score_time with txt file
+            path = "result/score_time" + str(i) + ".txt"
+
+        with open(path, "a") as f:
+            f.write("score time: " + str(score_time) + "\n")
+            f.write("X.shape: " + str(X.shape) + "\n")
+            f.write("subrowI.shape: " + str(np.sum(subrowI)) + "\n")
+            f.write("subcolJ.shape: " + str(np.sum(subcolJ)) + "\n")
+            if score_time > 100:
+                f.write("submatrix_" + str(i) + ".npy\n")
+            f.write("-----\n")
+            
     return min(s)
 
 
@@ -360,7 +417,7 @@ def corHelper(SS, X):
     return S
 
 
-def compute_scoreMat(k1, k2, X, row_idx, col_idx):
+def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
     """
     compute the score matrix
     input:
@@ -371,27 +428,60 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx):
     output:
         scoreMat: score matrix
     """
-    scoreMat = zeros(shape=(k1, k2)) * NaN
-    for i in range(k1):
-        for j in range(k2):
-            # if either row_idx == i has less than one element
-            # or col_idx == j has less than one element, then skip
-            if sum(a=row_idx == i) < 2 or sum(a=col_idx == j) < 2:
-                continue
-            scoreMat[i, j] = score(
-                X=X, subrowI=row_idx == i, subcolJ=col_idx == j)
+    scoreMat = np.zeros(shape=(k1, k2)) * NaN
 
-    # show the score matrix
-    # plt.imshow(scoreMat, cmap="hot", interpolation="nearest")
-    # plt.show()
+    def update_counter(counter):
+        # with counter.get_lock():
+        counter.value += 1
 
-    # print number of each cluster
-    # print('number of x clusters')
-    # for i in range(k):
-    #     print('cluster', i, ':', sum(a=row_idx == i))
-    # print('number of y clusters')
-    # for i in range(k):
-    #     print('cluster', i, ':', sum(a=col_idx == i))
+    if PARALLEL:
+        with mp.Manager() as manager:
+            counter = manager.Value('i', 0)  # Shared counter
+            pool = mp.Pool(k1 * k2)
+
+            result = []
+            jumped = []
+
+            # Submit tasks
+            for i in range(k1 * k2):
+                if sum(a=row_idx == i // k2) < 2 or sum(a=col_idx == i % k2) < 2:
+                    jumped.append(i)
+                    update_counter(counter)  # Update the counter
+                    continue
+                result.append([
+                    pool.apply_async(score, args=(
+                        X, row_idx == i // k2, col_idx == i % k2), callback=lambda x: update_counter(counter)),
+                    i // k2, i % k2
+                ])
+
+            pool.close()
+
+            # Update loop
+            with tqdm(total=k1 * k2, desc="Processing", position=0) as pbar:
+                while True:
+                    completed = counter.value  # Get the current counter value
+                    pbar.n = completed  # Update the progress bar
+                    pbar.refresh()  # Refresh the progress bar
+                    if completed >= k1 * k2:
+                        break
+                    # Wait for a short time before checking again
+                    time.sleep(0.1)
+
+            pool.join()
+
+            for i in range(len(result)):
+                scoreMat[result[i][1], result[i][2]] = result[i][0].get()
+
+    else:
+
+        for i in range(k1):
+            for j in range(k2):
+                # if either row_idx == i has less than one element
+                # or col_idx == j has less than one element, then skip
+                if sum(a=row_idx == i) < 2 or sum(a=col_idx == j) < 2:
+                    continue
+                scoreMat[i, j] = score(
+                    X=X, subrowI=row_idx == i, subcolJ=col_idx == j)
 
     return scoreMat
 
