@@ -9,6 +9,7 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+1-11-2023		Zihan	use svd to compute the score
 1-11-2023		Zihan	esitmateRank
 30-10-2023		Zihan	add imageShowBicluster
 30-10-2023		Zihan	Add saveNewMat
@@ -37,7 +38,7 @@ import time
 from tqdm import tqdm
 from sklearn.decomposition import TruncatedSVD
 
-DEBUG = True
+DEBUG = False
 
 # from . import bicluster as bc
 
@@ -54,6 +55,9 @@ class coclusterer:
     biclusterList: list
     newMat: np.ndarray
     debug: bool = False
+    U: np.ndarray
+    S: np.ndarray
+    Vh: np.ndarray
 
     def __init__(self, matrix: np.ndarray, M: int, N: int, debug: bool = False):
         """
@@ -69,6 +73,10 @@ class coclusterer:
         # set self.newMat not callable yet
         self.newMat = None
         self.debug = debug
+        self.calSVD()
+
+    def calSVD(self):
+        self.U, self.S, self.Vh = svd(self.matrix, full_matrices=False)
 
     def cocluster(self, tor: float, k1: int, k2: int, atomOrNot: bool = False):
         if atomOrNot:
@@ -84,7 +92,7 @@ class coclusterer:
 
         return self.biclusterList
 
-    def printBiclusterList(self, save=False) -> list:
+    def printBiclusterList(self, *args, **kwargs):
         for i in range(len(self.biclusterList)):
             print("bicluster", i)
             print("row members", self.biclusterList[i].row_bi_labels)
@@ -92,9 +100,10 @@ class coclusterer:
             print("score", self.biclusterList[i].score)
             # print ------
             print("------")
-        if save:
+        # if save:
+        if kwargs.get("save", True):
             # save to result/biclusterList.txt
-            path = "result/biclusterList.txt"
+            path = kwargs.get("path", "result/biclusterList.txt")
             if not os.path.exists(os.path.dirname(path)):
                 os.makedirs(os.path.dirname(path))
             with open(path, "w") as f:
@@ -117,6 +126,29 @@ class coclusterer:
             os.makedirs(os.path.dirname(filename))
         np.save(filename, self.newMat)
 
+    def isSubmatrixBicluster(self, subrowI: np.ndarray, subcolJ: np.ndarray, tor: float = 0.02) -> bool:
+        """
+        check if the submatrix X_IJ is a bicluster
+
+        Args:
+            X (np.ndarray): the data matrix
+            subrowI (np.ndarray): row index of the submatrix
+            subcolJ (np.ndarray): column index of the submatrix
+            tor (float): ratio of the second largest singular value to the largest singular value
+
+        Returns:
+            bool: is the submatrix a bicluster or not
+        """
+
+        subX = self.matrix[np.ix_(subrowI, subcolJ)]
+        svd = TruncatedSVD(n_components=np.min(subX.shape), random_state=42)
+        svd.fit(subX)
+        # if second largest singular value is small, then return True
+        if svd.singular_values_[1]/svd.singular_values_[0] < tor:
+            return True
+        else:
+            return False
+
     def coclusterAtom(self, tor, k1, k2, X, PARALLEL=False):
         """
         cocluster the data matrix X, especially for the case when X is a `atom` matrix
@@ -128,79 +160,37 @@ class coclusterer:
             biclusterList: list of biclusters
         """
 
-        U, S, Vh = svd(self.matrix, full_matrices=False)
-
         if self.debug:
             # print S
-            print("S", S)
+            print("S", self.S)
 
         # [row_idx, row_cluster, row_dist, row_sumd] = kmeans(U, k);
         # [col_idx, col_cluster, col_dist, col_sumd] = kmeans(V, k);
         kmeans_U = KMeans(n_clusters=k1, random_state=0,
-                          n_init="auto").fit((U @ np.diag(S)))
+                          n_init="auto").fit((self.U @ np.diag(self.S)))
         kmeans_V = KMeans(n_clusters=k2, random_state=0, n_init="auto").fit(
-            (np.diag(S) @ Vh).T
+            (np.diag(self.S) @ self.Vh).T
         )
         row_idx = kmeans_U.labels_
         col_idx = kmeans_V.labels_
 
-        # if self.debug:
-        #     print("row_idx", row_idx)
-        #     print("col_idx", col_idx)
-        #     # print matrix at (20:25) * (15:20)
-        #     print("matrix at (20:25) * (15:20)")
-        #     print(self.matrix[20:25, 15:20])
-
-        #     # print label of matrix at (20:25) * (15:20)
-        #     print("label of matrix at (20:25) * (15:20)")
-        #     print(row_idx[20:25])
-        #     print(col_idx[15:20])
-
         # re-order the row_idx and col_idx
         self.newMat = self.matrix.copy()
         self.newMat = self.newMat[np.ix_(row_idx, col_idx)]
-        # plt
-        # left newMat, right X.matrix
-        # fig, (ax1, ax2) = plt.subplots(1, 2)
-        # ax1.imshow(newMat, cmap="hot", interpolation="nearest")
-        # ax2.imshow(X.matrix, cmap="hot", interpolation="nearest")
-        # plt.show()
-
-        # print('row_idx', row_idx)
-        # print('col_idx', col_idx)
-        scoreMat = compute_scoreMat(
-            k1=k1, k2=k2, X=self.matrix, row_idx=row_idx, col_idx=col_idx, PARALLEL=PARALLEL
-        )
 
         biclusterList = []
         for i in range(k1):
             for j in range(k2):
-                if scoreMat[i, j] < tor:
-
-                    # initialize rowIdx to be a boolean array with all False, length = M
-                    rowIdx = np.zeros(shape=(self.M,), dtype=bool)
-                    colIdx = np.zeros(shape=(self.N,), dtype=bool)
-
-                    rowIdx[X.startx: X.startx +
-                           self.matrix.shape[0]] = row_idx == i
-                    colIdx[X.starty: X.starty +
-                           self.matrix.shape[1]] = col_idx == j
-
-                    # sum true for row and column
-                    rowTrueNum = sum(a=rowIdx)
-                    colTrueNum = sum(a=colIdx)
-
-                    if rowTrueNum > 2 and colTrueNum > 2:
-                        bicluster = bc.bicluster(
-                            row_idx=rowIdx, col_idx=colIdx, score=scoreMat[i, j]
-                        )
-                        biclusterList.append(bicluster)
-
-                    else:
-                        # if self.debug:
-                        #     print("rowTrueNum", rowTrueNum)
-                        #     print("colTrueNum", colTrueNum)
-                        pass
+                rowIdx = row_idx == i
+                colIdx = col_idx == j
+                rowTrueNum = sum(a=rowIdx)
+                colTrueNum = sum(a=colIdx)
+                if rowTrueNum < 2 or colTrueNum < 2:
+                    continue
+                if self.isSubmatrixBicluster(subrowI=rowIdx, subcolJ=colIdx, tor=tor):
+                    biclusterList.append(bc.bicluster(
+                        row_idx=row_idx == i, col_idx=col_idx == j, score=0
+                    ))
 
         return biclusterList
 
@@ -322,7 +312,7 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     subX[constant_rows, :] += 1e-8 * np.random.rand(
         np.sum(constant_rows), subX.shape[1]
     )
-    
+
     PEARSON = False
 
     if PEARSON:
@@ -373,7 +363,7 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
         path = "result/score_.txt"
         if not os.path.exists(os.path.dirname(path)):
             os.makedirs(os.path.dirname(path))
-        
+
         if score_time > 100:
             submatrix = X[np.ix_(subrowI, subcolJ)]
             # np.save("result/submatrix_0.npy", submatrix)
@@ -394,10 +384,11 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
             if score_time > 100:
                 f.write("submatrix_" + str(i) + ".npy\n")
             f.write("-----\n")
-            
+
     return score
 
-def estimateRank(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray, tor1 = 0.95, tor2 = 0.99, DEBUG = True) -> tuple:
+
+def estimateRank(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray, tor1=0.95, tor2=0.99, DEBUG=True) -> tuple:
     """
     Estimate the rank of the submatrix X_IJ
     input:
@@ -417,8 +408,9 @@ def estimateRank(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray, tor1 =
         print("r1", r1)
         print("r2", r2)
         print("acc", acc)
-        
+
     return r1, r2
+
 
 def corHelper(SS, X):
     """
