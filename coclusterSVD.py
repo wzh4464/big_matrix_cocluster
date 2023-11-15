@@ -9,6 +9,7 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+15-11-2023		Zihan	add cocluster_List
 1-11-2023		Zihan	use svd to compute the score
 1-11-2023		Zihan	esitmateRank
 30-10-2023		Zihan	add imageShowBicluster
@@ -80,20 +81,24 @@ class coclusterer:
     def calSVD(self):
         self.U, self.S, self.Vh = svd(self.matrix, full_matrices=False)
 
+    def cocluster_List(self, args):
+        tor, k1, k2, atomOrNot = args
+        if atomOrNot:
+            self._extracted_from_cocluster_5(k1, k2, tor)
+        return self
+
     def cocluster(self, tor: float, k1: int, k2: int, atomOrNot: bool = False):
         if atomOrNot:
-            # generate full as submatrix
-            startx = 0
-            starty = 0
-            self.scoreMat = np.zeros(shape=(k1, k2), dtype=float)
-            X = sm.submatrix(matrix=self.matrix, startx=startx, starty=starty)
-            self.biclusterList = self.coclusterAtom(
-                tor=tor, k1=k1, k2=k2, X=X
-            )
-        else:
-            pass
-
+            self._extracted_from_cocluster_5(k1, k2, tor)
         return self
+
+    # TODO Rename this here and in `cocluster_List` and `cocluster`
+    def _extracted_from_cocluster_5(self, k1, k2, tor):
+        startx = 0
+        starty = 0
+        self.scoreMat = np.zeros(shape=(k1, k2), dtype=float)
+        X = sm.submatrix(matrix=self.matrix, startx=startx, starty=starty)
+        self.biclusterList = self.coclusterAtom(tor=tor, k1=k1, k2=k2, X=X)
 
     def printBiclusterList(self, *args, **kwargs):
         # if save:
