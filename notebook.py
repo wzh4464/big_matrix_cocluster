@@ -19,6 +19,12 @@ Date      		By   	Comments
 
 # %%
 import numpy as np
+
+import os
+import sys
+
+sys.path.append(os.path.abspath('../'))
+
 import coclusterSVD as ccSVD
 import multiprocessing
 from expSetting import generate

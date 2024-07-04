@@ -73,10 +73,10 @@ class coclusterer:
         self.N = N
         self.biclusterList = []
         # set self.newMat not callable yet
-        self.newMat = None
+        self.newMat = np.empty((0, 0))
         self.debug = debug
         self.calSVD()
-        self.scoreMat = None
+        self.scoreMat = np.empty((0, 0))
 
     def calSVD(self):
         self.U, self.S, self.Vh = svd(self.matrix, full_matrices=False)
@@ -109,12 +109,12 @@ class coclusterer:
                 os.makedirs(os.path.dirname(path))
             with open(path, "w") as f:
                 for i in range(len(self.biclusterList)):
-                    f.write("bicluster " + str(i) + "\n")
+                    f.write(f"bicluster {str(i)}" + "\n")
                     f.write("row members " +
                             str(self.biclusterList[i].row_bi_labels) + "\n")
                     f.write("col members " +
                             str(self.biclusterList[i].col_bi_labels) + "\n")
-                    f.write("score " + str(self.biclusterList[i].score) + "\n")
+                    f.write(f"score {str(self.biclusterList[i].score)}" + "\n")
                     # print ------
                     f.write("------" + "\n")
         else:
@@ -293,8 +293,8 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     Compute the compatibility for submatrix X_IJ
     input:
         X: the data matrix
-        I: the row cluster assignment; I is boolean array.
-        J: the column cluster assignment; J is boolean array.
+        subrowI: the row cluster assignment; subrowI is a boolean array.
+        subcolJ: the column cluster assignment; subcolJ is a boolean array.
     output:
         s: the compatibility score
     """
@@ -302,11 +302,11 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     if DEBUG:
         start = time.time()
 
-    lenI = sum(a=subrowI)
-    if not isinstance(lenI, np.integer):
+    lenI = sum(subrowI)
+    if not isinstance(lenI, int):  # Check if lenI is an integer
         raise TypeError("Expected an integer value for lenI")
-    lenJ = sum(a=subcolJ)
-    if not isinstance(lenJ, np.integer):
+    lenJ = sum(subcolJ)
+    if not isinstance(lenJ, int):  # Check if lenJ is an integer
         raise TypeError("Expected an integer value for lenJ")
 
     # See each column as a vector,
@@ -381,20 +381,20 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
             # np.save("result/submatrix_0.npy", submatrix)
             # save, if submatrix_0.npy is already exist, then save to submatrix_1.npy
             i = 0
-            while os.path.exists("result/submatrix_" + str(i) + ".npy"):
+            while os.path.exists(f"result/submatrix_{i}.npy"):
                 i += 1
-            np.save("result/submatrix_" + str(i) + ".npy", submatrix)
+            np.save(f"result/submatrix_{i}.npy", submatrix)
             # save score_time with txt file
-            path = "result/score_time" + str(i) + ".txt"
+            path = f"result/score_time{i}.txt"
 
         with open(path, "a") as f:
-            f.write("score time: " + str(score_time) + "\n")
-            f.write("X.shape: " + str(X.shape) + "\n")
-            f.write("subrowI.shape: " + str(np.sum(subrowI)) + "\n")
-            f.write("subcolJ.shape: " + str(np.sum(subcolJ)) + "\n")
-            f.write("score: " + str(score) + "\n")
+            f.write(f"score time: {str(score_time)}" + "\n")
+            f.write(f"X.shape: {str(X.shape)}" + "\n")
+            f.write(f"subrowI.shape: {str(np.sum(subrowI))}" + "\n")
+            f.write(f"subcolJ.shape: {str(np.sum(subcolJ))}" + "\n")
+            f.write(f"score: {str(score)}" + "\n")
             if score_time > 100:
-                f.write("submatrix_" + str(i) + ".npy\n")
+                f.write(f"submatrix_{str(i)}" + ".npy\n")
             f.write("-----\n")
 
     return score
@@ -437,13 +437,16 @@ def corHelper(SS, X):
                 # let flag1 & flag2 tells if the ith column and jth column are constant
                 flag1 = np.all(X[:, i] == X[:, i][0])
                 flag2 = np.all(X[:, j] == X[:, j][0])
-                if flag1 and flag2:
-                    if i == j:
-                        S[i, j] = 0
-                    else:
-                        S[i, j] = 1
-                elif flag1 or flag2:
+                if (
+                    flag1
+                    and flag2
+                    and i == j
+                    or (not flag1 or not flag2)
+                    and (flag1 or flag2)
+                ):
                     S[i, j] = 0
+                elif flag1:
+                    S[i, j] = 1
                 else:
                     raise Exception(
                         "Error: NaN in correlation matrix (corHelper)")
@@ -578,7 +581,7 @@ def tailPar(partNum, totalNum, threshold, blockSize):
         for i in range(blockSize.shape[0]):
             tailProb[i] = tailParHelper(
                 partNum, totalNum, threshold, blockSize[i])
-    elif isinstance(blockSize, np.integer) or isinstance(blockSize, int):
+    elif isinstance(blockSize, (np.integer, int)):
         tailProb = tailParHelper(partNum, totalNum, threshold, blockSize)
     else:
         raise TypeError(
@@ -606,7 +609,7 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
     M, N = A.shape
 
     # if phi and psi are integers, then convert them to numpy array
-    if isinstance(phi, np.integer) or isinstance(phi, int):
+    if isinstance(phi, (np.integer, int)):
         numBlockx = M // phi
         numBlocky = N // psi
         phi = np.ones(shape=(numBlockx,)) * phi
@@ -705,7 +708,7 @@ def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
     '''
     count = 0
     result = []
-    for i in range(num_iter):
+    for _ in range(num_iter):
         ite = isBiclusterFoundConst(A, Tp, Tm, Tn, sizex, sizey, 10)
         result.append(ite)
         if ite != -1:
@@ -714,14 +717,27 @@ def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
 
 
 class TpPair_List:
+    """
+    Represents a list of TpPair objects with corresponding ranges.
+
+    Args:
+        ranges (list): A list of ranges.
+        Tp_list (list): A list of TpPair objects.
+
+    Raises:
+        ValueError: If the length of ranges does not match the length of Tp_list or if ranges is empty.
+
+    Returns:
+        TpPair_List: An instance of TpPair_List.
+    """
+
     def __init__(self, ranges, Tp_list):
         self.TpList = []
         if len(ranges) != len(Tp_list):
             raise ValueError("len(ranges) != len(Tp_list)")
         if len(ranges) == 0:
             raise ValueError("len(ranges) == 0")
-        for i in range(len(ranges)):
-            self.TpList.append(TpPair(ranges[i], Tp_list[i]))
+        self.TpList.extend(TpPair(ranges[i], Tp_list[i]) for i in range(len(ranges)))
 
     def __getitem__(self, index):
         return self.TpList[index]
@@ -736,10 +752,10 @@ class TpPair:
         self.Tp = Tp
 
     def __str__(self):
-        return "Mk: " + str(self.Mk) + " Tp: " + str(self.Tp)
+        return f"Mk: {str(self.Mk)} Tp: {str(self.Tp)}"
 
     def __repr__(self):
-        return "Mk: " + str(self.Mk) + " Tp: " + str(self.Tp)
+        return f"Mk: {str(self.Mk)} Tp: {str(self.Tp)}"
 
     def __getitem__(self, index):
         return (self.Mk[index], self.Tp[index])
