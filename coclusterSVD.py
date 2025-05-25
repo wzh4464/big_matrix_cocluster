@@ -9,7 +9,7 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
-
+30-10-2023		Zihan	Add scoreInd
 19-09-2023		Zihan	Add Tp to calculate the number of times of re-partitioning
 12-09-2023		Zihan	Added tailPar
 30-08-2023		Zihan	Documented
@@ -153,6 +153,28 @@ def scoreHelper(length, C) -> ndarray:
         raise ValueError(
             "C contains NaN, probably because of constant rows/columns")
     return 1 - 1 / (length - 1) * sum(a=C, axis=1)
+
+
+def scoreInd(X: np.ndarray, subrowIind: np.ndarray, subcolJind: np.ndarray) -> float:
+    """
+    Use subindex to compute the score
+    Args:
+        X (np.ndarray): the data matrix
+        subrowIind (np.ndarray): index version of subrowI 
+        subcolJind (np.ndarray): index version of subcolJ 
+
+    Returns:
+        float: score
+
+    for example:
+    score = scoreInd(X, np.arange(0, 10), np.arange(0, 10))
+    """
+    subrowI = np.zeros(shape=(X.shape[0],), dtype=bool)
+    subcolJ = np.zeros(shape=(X.shape[1],), dtype=bool)
+    subrowI[subrowIind] = True
+    subcolJ[subcolJind] = True
+
+    return score(X, subrowI, subcolJ)
 
 
 def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
