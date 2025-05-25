@@ -21,7 +21,6 @@ from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import bicluster as bc
 
-
 def scoreHelper(length, C) -> ndarray:
     """
     helper function for score
@@ -60,15 +59,40 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     std_devs_y = np.std(subX.T, axis=0)
     constant_columns = std_devs == 0
     constant_rows = std_devs_y == 0
-    subX[:, constant_columns] += 1e-4 * np.random.rand(
+    subX[:, constant_columns] += 1e-15 * np.random.rand(
         subX.shape[0], np.sum(constant_columns)
     )
-    subX[constant_rows, :] += 1e-4 * np.random.rand(
+    subX[constant_rows, :] += 1e-15 * np.random.rand(
         np.sum(constant_rows), subX.shape[1]
     )
 
-    SS1: np.ndarray = abs(corrcoef(subX, rowvar=False) - eye(lenJ))
-    SS2: np.ndarray = abs(corrcoef(subX.T, rowvar=False) - eye(lenI))
+    # SS1: np.ndarray = abs(corrcoef(subX, rowvar=False) - eye(lenJ))
+    # SS2: np.ndarray = abs(corrcoef(subX.T, rowvar=False) - eye(lenI))
+    SS1 = zeros(shape=(subX.shape[1], subX.shape[1]))
+    for i in range(subX.shape[1]):
+        for j in range(subX.shape[1]):
+            if i == j:
+                SS1[i, j] = 0
+            else:
+                x1 = subX[:, i]
+                x2 = subX[:, j]
+                SS1[i, j] = np.exp(
+                    -np.linalg.norm(x1 - x2) ** 2
+                    / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
+                )
+
+    SS2 = zeros(shape=(subX.shape[0], subX.shape[0]))
+    for i in range(subX.shape[0]):
+        for j in range(subX.shape[0]):
+            if i == j:
+                SS2[i, j] = 0
+            else:
+                x1 = subX[i, :]
+                x2 = subX[j, :]
+                SS2[i, j] = np.exp(
+                    -np.linalg.norm(x1 - x2) ** 2
+                    / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
+                )
     # Pearson correlation fails when there is constant vectors
     # Thus check the NaN and redo the computation
 
@@ -194,4 +218,3 @@ def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
     their row_idx and col_idx has at least one common element
     """
     return (bc1.row_idx & bc2.row_idx).any() and (bc1.col_idx & bc2.col_idx).any()
-
