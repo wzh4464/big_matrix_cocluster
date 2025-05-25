@@ -58,6 +58,7 @@ class coclusterer:
     U: np.ndarray
     S: np.ndarray
     Vh: np.ndarray
+    scoreMat: np.ndarray
 
     def __init__(self, matrix: np.ndarray, M: int, N: int, debug: bool = False):
         """
@@ -74,6 +75,7 @@ class coclusterer:
         self.newMat = None
         self.debug = debug
         self.calSVD()
+        self.scoreMat = None
 
     def calSVD(self):
         self.U, self.S, self.Vh = svd(self.matrix, full_matrices=False)
@@ -83,6 +85,7 @@ class coclusterer:
             # generate full as submatrix
             startx = 0
             starty = 0
+            self.scoreMat = np.zeros(shape=(k1, k2), dtype=float)
             X = sm.submatrix(matrix=self.matrix, startx=startx, starty=starty)
             self.biclusterList = self.coclusterAtom(
                 tor=tor, k1=k1, k2=k2, X=X
@@ -90,16 +93,9 @@ class coclusterer:
         else:
             pass
 
-        return self.biclusterList
+        return self
 
     def printBiclusterList(self, *args, **kwargs):
-        for i in range(len(self.biclusterList)):
-            print("bicluster", i)
-            print("row members", self.biclusterList[i].row_bi_labels)
-            print("col members", self.biclusterList[i].col_bi_labels)
-            print("score", self.biclusterList[i].score)
-            # print ------
-            print("------")
         # if save:
         if kwargs.get("save", True):
             # save to result/biclusterList.txt
@@ -116,6 +112,14 @@ class coclusterer:
                     f.write("score " + str(self.biclusterList[i].score) + "\n")
                     # print ------
                     f.write("------" + "\n")
+        else:
+            for i in range(len(self.biclusterList)):
+                print("bicluster", i)
+                print("row members", self.biclusterList[i].row_bi_labels)
+                print("col members", self.biclusterList[i].col_bi_labels)
+                print("score", self.biclusterList[i].score)
+                # print ------
+                print("------")
 
         return self.biclusterList
 
@@ -126,7 +130,7 @@ class coclusterer:
             os.makedirs(os.path.dirname(filename))
         np.save(filename, self.newMat)
 
-    def isSubmatrixBicluster(self, subrowI: np.ndarray, subcolJ: np.ndarray, tor: float = 0.02) -> bool:
+    def isSubmatrixBicluster(self, subrowI: np.ndarray, subcolJ: np.ndarray, i: int, j: int, tor: float = 0.02):
         """
         check if the submatrix X_IJ is a bicluster
 
@@ -143,10 +147,13 @@ class coclusterer:
         subX = self.matrix[np.ix_(subrowI, subcolJ)]
         svd = TruncatedSVD(n_components=np.min(subX.shape), random_state=42)
         svd.fit(subX)
+        ratio = svd.singular_values_[1]/svd.singular_values_[0]
         # if second largest singular value is small, then return True
-        if svd.singular_values_[1]/svd.singular_values_[0] < tor:
+        if ratio < tor:
+            self.scoreMat[i, j] = ratio
             return True
         else:
+            self.scoreMat[i, j] = NaN
             return False
 
     def coclusterAtom(self, tor, k1, k2, X, PARALLEL=False):
@@ -187,9 +194,9 @@ class coclusterer:
                 colTrueNum = sum(a=colIdx)
                 if rowTrueNum < 2 or colTrueNum < 2:
                     continue
-                if self.isSubmatrixBicluster(subrowI=rowIdx, subcolJ=colIdx, tor=tor):
+                if self.isSubmatrixBicluster(subrowI=rowIdx, subcolJ=colIdx, tor=tor, i=i, j=j):
                     biclusterList.append(bc.bicluster(
-                        row_idx=row_idx == i, col_idx=col_idx == j, score=0
+                        row_idx=row_idx == i, col_idx=col_idx == j, score=self.scoreMat[i, j]
                     ))
 
         return biclusterList
