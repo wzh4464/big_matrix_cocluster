@@ -216,7 +216,7 @@ def compute_scoreMat(k, X, row_idx, col_idx):
     return scoreMat
 
 
-def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
+def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster):
     """
     check if two biclusters intersect
     well, in generalized meaning, two biclusters intersect if and only if
@@ -343,12 +343,12 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
                 # print("TnTest", TnTest)
                 
                 if TmTest >= Tm and TnTest >= Tn:
-                    print("found at i =", i, "j =", j, "k =", k)
-                    print("M =", M, "N =", N)
-                    print("phi =", phi, "psi =", psi)
-                    print("Tm =", Tm, "Tn =", Tn)
-                    print("Tp =", Tp)
-                    return True
+                    # print("found at i =", i, "j =", j, "k =", k)
+                    # print("M =", M, "N =", N)
+                    # print("phi =", phi, "psi =", psi)
+                    # print("Tm =", Tm, "Tn =", Tn)
+                    # print("Tp =", Tp)
+                    return i
         # print("count", count)
         # print("i", i)
-    return False
+    return Tp
