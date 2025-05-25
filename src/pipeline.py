@@ -161,6 +161,7 @@ class BiclusteringPipeline:
 
         if self.config.save_intermediate_results:
             log_path = self.output_dir / "pipeline.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)  # 确保目录存在
             handler = logging.FileHandler(log_path)
             handler.setFormatter(
                 logging.Formatter(
