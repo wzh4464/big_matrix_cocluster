@@ -3,3 +3,7 @@
 *.o
 *.c
 __pycache__/**
+
+uv.lock
+.coverage
+lcov.info
