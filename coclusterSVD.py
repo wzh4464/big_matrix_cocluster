@@ -9,6 +9,9 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+30-08-2023		Zihan	Documented
+30-08-2023	    Zihan   isBiclusterIntersect
+30-08-2023	    Zihan   biclusterList
 """
 
 # define class coclusterSVD with only methods (score, scoreHelper)
@@ -16,10 +19,14 @@ from numpy import NaN, ndarray, sum, abs, corrcoef, eye, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+import bicluster as bc
 
 
 def scoreHelper(length, C) -> ndarray:
+    '''
+    helper function for score
+    $$ s_i = 1 - \frac{1}{n-1} \sum_{j=1}^n |c_{ij}| $$
+    '''
     # check if there is nan in C
     if np.isnan(C).any():
         # throw exception
@@ -28,12 +35,16 @@ def scoreHelper(length, C) -> ndarray:
 
 
 def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
-    # Compute the compatibility for submatrix X_IJ
-    #
-    #   X: the data matrix
-    #   I: the row cluster assignment; I is boolean array.
-    #   J: the column cluster assignment; J is boolean array.
-
+    '''
+    Compute the compatibility for submatrix X_IJ
+    input:
+        X: the data matrix
+        I: the row cluster assignment; I is boolean array.
+        J: the column cluster assignment; J is boolean array.
+    output:
+        s: the compatibility score
+    '''
+    
     lenI: np.ndarray = sum(a=subrowI)
     lenJ: np.ndarray = sum(a=subcolJ)
 
@@ -53,9 +64,16 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     return min(s)
 
 
-def cocluster(X, scale, k):
-    # [U, S, V] = svds(X, scale);
-    # s is a vector saving the singular values of X
+def coclusterAtom(X, tor, k) -> list:
+    '''
+    cocluster the data matrix X, especially for the case when X is a `atom` matrix
+    input:
+        X: data matrix
+        tor: threshold
+        k: number of clusters
+    output:
+        biclusterList: list of biclusters
+    '''
 
     U, S, Vh = svd(X, full_matrices=False)
 
@@ -70,9 +88,30 @@ def cocluster(X, scale, k):
     # print('col_idx', col_idx)
     scoreMat = compute_scoreMat(k=k, X=X, row_idx=row_idx, col_idx=col_idx)
 
-    return
+    biclusterList = []
+    for i in range(k):
+        for j in range(k):
+            if scoreMat[i, j] < tor:
+                bicluster = bc.bicluster(
+                    row_idx=row_idx == i,
+                    col_idx=col_idx == j,
+                    score=scoreMat[i, j],
+                    data=X[row_idx == i, :][:, col_idx == j]
+                )
+                biclusterList.append(bicluster)
+    return biclusterList
 
 def compute_scoreMat(k, X, row_idx, col_idx):
+    '''
+    compute the score matrix
+    input:
+        k: number of clusters
+        X: data matrix
+        row_idx: row cluster assignment
+        col_idx: column cluster assignment
+    output:
+        scoreMat: score matrix
+    '''
     scoreMat = zeros(shape=(k, k)) * NaN
     for i in range(k):
         for j in range(k):
@@ -83,7 +122,23 @@ def compute_scoreMat(k, X, row_idx, col_idx):
             scoreMat[i, j] = score(X=X, subrowI=row_idx == i, subcolJ=col_idx == j)
 
     # show the score matrix
-    plt.imshow(scoreMat, cmap="hot", interpolation="nearest")
-    plt.show()
+    # plt.imshow(scoreMat, cmap="hot", interpolation="nearest")
+    # plt.show()
+    
+    # print number of each cluster
+    # print('number of x clusters')
+    # for i in range(k):
+    #     print('cluster', i, ':', sum(a=row_idx == i))
+    # print('number of y clusters')
+    # for i in range(k):
+    #     print('cluster', i, ':', sum(a=col_idx == i))
     
     return scoreMat
+
+def isBiclusterIntersectGeneral(bc1 : bc.bicluster, bc2 : bc.bicluster) -> bool:
+    '''
+    check if two biclusters intersect
+    well, in generalized meaning, two biclusters intersect if and only if
+    their row_idx and col_idx has at least one common element
+    '''
+    return (bc1.row_idx & bc2.row_idx).any() and (bc1.col_idx & bc2.col_idx).any()
