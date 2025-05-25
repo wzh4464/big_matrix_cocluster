@@ -220,4 +220,8 @@ def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
     well, in generalized meaning, two biclusters intersect if and only if
     their row_idx and col_idx has at least one common element
     """
-    return (bc1.row_idx & bc2.row_idx).any() and (bc1.col_idx & bc2.col_idx).any()
+    # sameRow = (bc1.row_idx & bc2.row_idx).any()
+    # sameCol = (bc1.col_idx & bc2.col_idx).any()
+    # print("sameRow", sameRow)
+    # print("sameCol", sameCol)
+    return (bc1.row_idx & bc2.row_idx).any() or (bc1.col_idx & bc2.col_idx).any()
