@@ -194,3 +194,4 @@ def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
     their row_idx and col_idx has at least one common element
     """
     return (bc1.row_idx & bc2.row_idx).any() and (bc1.col_idx & bc2.col_idx).any()
+
