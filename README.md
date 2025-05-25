@@ -1,195 +1,313 @@
-# CoCluster SVD
+# Big Matrix CoCluster SVD
 
-A Python implementation of biclustering algorithms using Singular Value Decomposition (SVD) for analyzing co-clustered data matrices.
+A comprehensive Python implementation of biclustering algorithms using Singular Value Decomposition (SVD) for analyzing large-scale co-clustered data matrices.
 
 ## Overview
 
-This repository contains tools for biclustering analysis, specifically designed to identify and evaluate biclusters (submatrices) within larger data matrices. The implementation includes:
+This repository provides a complete framework for biclustering analysis, designed to identify and evaluate biclusters (coherent submatrices) within large data matrices. The implementation combines SVD-based clustering with statistical validation and visualization tools.
 
-- A compatibility scoring function for evaluating bicluster quality
-- Synthetic data generation for testing biclustering algorithms
-- Utilities for creating matrices with embedded biclusters
+## Key Features
 
-## Features
+### Core Biclustering Engine
 
-- **Bicluster Quality Assessment**: Compatibility scoring based on correlation analysis
-- **Synthetic Data Generation**: Create test matrices with known bicluster structures
-- **Flexible Configuration**: Customizable parameters for bicluster generation
-- **Visualization Support**: Built-in plotting capabilities for data exploration
+- **SVD-based Clustering**: Uses K-means clustering on SVD-transformed matrices (U and V components)
+- **Bicluster Quality Assessment**: Multiple scoring functions including compatibility scoring and rank estimation
+- **Automated Bicluster Detection**: Identifies biclusters based on singular value ratio thresholds
+- **Intersection Detection**: Algorithms to detect and merge overlapping biclusters
+
+### Data Generation & Testing
+
+- **Synthetic Data Generation**: Create test matrices with embedded bicluster structures
+- **Configurable Bicluster Properties**: Control size, number, and distribution of biclusters
+- **Ground Truth Validation**: Compare detected biclusters against known structures
+
+### Statistical Analysis
+
+- **Theoretical Analysis**: Tail probability estimation for bicluster detection
+- **Experimental Validation**: Monte Carlo simulations for parameter optimization
+- **Performance Metrics**: Comprehensive evaluation of detection accuracy
+
+### Visualization & I/O
+
+- **Matrix Visualization**: Heat map plotting of original and clustered matrices
+- **Result Export**: Save bicluster lists, matrices, and visualizations
+- **Progress Tracking**: Built-in progress bars for long-running analyses
+
+### Parallel Processing
+
+- **Multiprocessing Support**: Parallel computation of score matrices
+- **Batch Processing**: Handle multiple parameter configurations simultaneously
+- **HPC Integration**: SLURM job submission scripts included
 
 ## Installation
 
 ### Prerequisites
 
-This project requires Python 3.11+ and uses conda for environment management. Make sure you have [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/) installed.
+This project requires Python 3.11+ and uses conda for environment management.
 
 ### Setup Environment
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
-cd cocluster
+cd big_matrix_cocluster
 ```
 
 2. Create and activate the conda environment:
+
 ```bash
-conda env create -f cocluster.yml
+conda env create -f cocluster.yaml
 conda activate cocluster
 ```
 
-The environment includes all necessary dependencies:
-- NumPy for numerical computations
-- Matplotlib for visualization
-- SciPy for scientific computing
-- Scikit-learn for machine learning utilities
-- Jupyter for interactive development
-
 ## Usage
 
-### Basic Bicluster Scoring
+### Basic Biclustering Analysis
 
 ```python
-from coclusterSVD import score
 import numpy as np
+from coclusterSVD import coclusterer
+from expSetting import generate
 
-# Create a sample matrix
-X = np.random.rand(100, 50)
+# Generate synthetic data with biclusters
+M, N = 1000, 1000  # Matrix dimensions
+K = 5              # Number of biclusters
+bicluster_size = 100
 
-# Define row and column indices for a submatrix
-subrow_indices = [True] * 20 + [False] * 80  # First 20 rows
-subcol_indices = [True] * 10 + [False] * 40  # First 10 columns
+B, permx, permy, A = generate(
+    num_bicluster=K, 
+    M=M, N=N, 
+    m=[bicluster_size]*K, 
+    n=[bicluster_size]*K, 
+    seed=42
+)
 
-# Calculate compatibility score
-compatibility_score = score(X, subrow_indices, subcol_indices)
-print(f"Bicluster compatibility score: {compatibility_score}")
+# Initialize coclustering algorithm
+clusterer = coclusterer(matrix=B, M=M, N=N, debug=True)
+
+# Perform biclustering
+clusterer.cocluster(tor=0.02, k1=10, k2=10)
+
+# Print results
+clusterer.printBiclusterList(save=True, path="results/biclusters.txt")
+
+# Visualize results
+clusterer.imageShowBicluster(save=True, filename="results/visualization.png")
 ```
 
-### Generating Synthetic Data
+### Advanced Scoring and Analysis
 
 ```python
-import numpy as np
-import matplotlib.pyplot as plt
-from main import generate  # From the notebook implementation
+from coclusterSVD import score, estimateRank
 
-# Generate synthetic data with embedded biclusters
-seed = 42
-num_pool = 200        # Size of random pool for bicluster bases
-num_bicluster = 15    # Number of biclusters to embed
+# Create sample submatrix indices
+row_indices = np.random.choice([True, False], size=M, p=[0.1, 0.9])
+col_indices = np.random.choice([True, False], size=N, p=[0.1, 0.9])
 
-# Create synthetic matrix
-B = generate(seed=seed, num_pool=num_pool, num_bicluster=num_bicluster)
+# Calculate compatibility score
+compatibility_score = score(B, row_indices, col_indices)
+print(f"Compatibility score: {compatibility_score}")
 
-# Visualize the result
-plt.figure(figsize=(10, 8))
-plt.imshow(B, cmap='hot', interpolation='nearest')
-plt.title('Synthetic Data Matrix with Embedded Biclusters')
-plt.colorbar()
-plt.show()
+# Estimate rank of submatrix
+r1, r2 = estimateRank(B, row_indices, col_indices, tor1=0.95, tor2=0.99)
+print(f"Estimated ranks: {r1}, {r2}")
+```
+
+### Parameter Optimization
+
+```python
+from coclusterSVD import Tp, find_bicluster_count
+import multiprocessing
+
+# Theoretical analysis of search parameters
+ranges = range(50, 200, 10)
+Tp_values = Tp(ranges=ranges, phi=100, Tm=4, M=1000)
+
+# Experimental validation
+pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+results = pool.starmap(find_bicluster_count, [
+    (test_matrix, tp_val, 4, 4, 100, 100, 1000) 
+    for tp_val in Tp_values
+])
 ```
 
 ### Interactive Analysis
 
-The repository includes a Jupyter notebook (`main.ipynb`) for interactive exploration:
+Use the provided Jupyter notebooks for interactive exploration:
 
 ```bash
-jupyter notebook main.ipynb
+jupyter notebook main_ipy.py  # Main analysis notebook
 ```
-
-This notebook demonstrates:
-- Data generation with various parameters
-- Visualization of bicluster structures
-- Parameter sensitivity analysis
 
 ## Algorithm Details
 
+### SVD-based Biclustering
+
+The core algorithm follows these steps:
+
+1. **SVD Decomposition**: Compute `X = U Σ V^T`
+2. **Feature Transformation**:
+   - Row features: `U @ diag(Σ)`
+   - Column features: `(diag(Σ) @ V^T)^T`
+3. **K-means Clustering**: Cluster rows and columns independently
+4. **Bicluster Validation**: Check each cluster pair using singular value ratios
+5. **Quality Scoring**: Apply compatibility scoring to validate biclusters
+
 ### Compatibility Scoring
 
-The core scoring function evaluates bicluster quality using correlation analysis:
+The scoring function evaluates bicluster coherence:
 
-1. **Input**: Data matrix X and boolean arrays indicating row/column subsets
-2. **Process**: 
-   - Extract the specified submatrix X_IJ
-   - Compute correlation matrices for both row and column perspectives
-   - Calculate deviations from identity matrices
-   - Return the minimum compatibility score
-
-3. **Output**: Compatibility score (lower values indicate better biclusters)
-
-The mathematical formulation:
+```python
+def score(X, subrowI, subcolJ):
+    # Extract submatrix
+    subX = X[np.ix_(subrowI, subcolJ)]
+    
+    # Compute correlation matrices (or exponential similarity)
+    SS1 = correlation_matrix(subX, axis=0)  # Column correlations
+    SS2 = correlation_matrix(subX, axis=1)  # Row correlations
+    
+    # Calculate compatibility scores
+    s1 = scoreHelper(lenJ, SS1)
+    s2 = scoreHelper(lenI, SS2)
+    
+    return min(np.concatenate([s1, s2]))
 ```
-score = min(scoreHelper(lenJ, |corr(X_IJ) - I_J|), 
-            scoreHelper(lenI, |corr(X_IJ^T) - I_I|))
-```
 
-Where `scoreHelper(length, C) = 1 - 1/(length-1) * sum(C, axis=1)`
+### Theoretical Framework
 
-### Synthetic Data Generation
+The implementation includes theoretical analysis based on:
 
-The data generation process creates matrices with embedded bicluster structures:
-
-1. **Base Generation**: Create random base vectors for each bicluster
-2. **Matrix Construction**: Build a structured matrix using these bases
-3. **Permutation**: Randomly permute rows and columns to hide structure
-4. **Noise Addition**: Add controlled noise to make the problem realistic
+- **Hypergeometric Distribution**: Model probability of bicluster detection
+- **Tail Probability Bounds**: Estimate required search iterations
+- **Statistical Validation**: Compare empirical vs. theoretical performance
 
 ## File Structure
 
 ```
-cocluster/
-├── cocluster.yml           # Conda environment specification
-├── coclusterSVD.py        # Core scoring algorithms
-├── main.py                # Basic data generation utilities
-├── main.ipynb             # Interactive analysis notebook
-├── test_coclusterSVD.py   # Unit tests
-└── README.md              # This file
+big_matrix_cocluster/
+├── __init__.py                 # Package initialization
+├── bicluster.py               # Bicluster data structure
+├── coclusterSVD.py           # Main biclustering algorithms
+├── submatrix.py              # Submatrix utilities
+├── expSetting.py             # Synthetic data generation
+├── main_ipy.py               # Interactive analysis notebook
+├── notebook.py               # Batch processing script
+├── test_coclusterSVD.py      # Unit tests and benchmarks
+├── m_Tp_p.py                 # Parameter optimization analysis
+├── run_hpc.sh                # HPC job submission script
+├── cocluster.yaml            # Conda environment specification
+└── README.md                 # This file
 ```
 
-## Testing
+## Performance & Scalability
 
-Run the included unit tests to verify functionality:
+### Computational Complexity
 
-```python
-python -m pytest test_coclusterSVD.py -v
+- **Matrix Size**: Tested on matrices up to 10,000 × 10,000
+- **Bicluster Detection**: Handles 10+ biclusters simultaneously
+- **Memory Efficiency**: Uses TruncatedSVD for large matrices
+
+### Benchmark Results
+
+Based on Reuters-21578 dataset experiments:
+
+- **5% dataset**: 41 minutes (our method) vs 85 minutes (CoCC)
+- **20% dataset**: 80 minutes (our method) vs 1007 minutes (CoCC)
+- **100% dataset**: 1750 minutes (266 minutes with Rust-optimized SVD)
+
+### Parallel Processing
+
+- **Multi-core Support**: Automatic CPU detection and utilization
+- **HPC Integration**: SLURM job scripts for cluster computing
+- **Memory Management**: Efficient handling of large matrices
+
+## Research Applications
+
+This implementation is designed for:
+
+- **Gene Expression Analysis**: Identify co-expressed gene groups
+- **Market Basket Analysis**: Find item co-occurrence patterns
+- **Social Network Analysis**: Detect community structures
+- **Recommendation Systems**: Collaborative filtering applications
+- **Text Mining**: Document-term co-clustering
+
+## Testing & Validation
+
+Run the comprehensive test suite:
+
+```bash
+python test_coclusterSVD.py  # Performance benchmarks
+pytest -v                    # Unit tests (if pytest configured)
 ```
 
 The test suite includes:
-- Validation of scoring function with known inputs
-- Edge case handling
-- Numerical stability checks
+
+- **Synthetic Data Validation**: Known ground truth verification
+- **Performance Benchmarks**: Speed and memory usage tests
+- **Edge Case Handling**: Robustness testing
+- **Statistical Validation**: Theoretical vs. empirical comparison
 
 ## Development
 
-### Key Functions
+### Key Classes and Functions
 
-- `score(X, subrowI, subcolJ)`: Main compatibility scoring function
-- `scoreHelper(length, C)`: Helper function for correlation-based scoring
-- `generate(seed, num_bicluster, num_pool)`: Synthetic data generation
+#### Core Classes
+
+- `coclusterer`: Main biclustering engine
+- `bicluster`: Bicluster data structure with row/column indices
+- `submatrix`: Submatrix representation with coordinates
+
+#### Key Functions
+
+- `score()`: Compatibility scoring for bicluster quality
+- `estimateRank()`: SVD-based rank estimation
+- `Tp()`: Theoretical search parameter calculation
+- `generate()`: Synthetic data generation with embedded biclusters
 
 ### Dependencies
 
-Core computational dependencies:
-- **NumPy** (1.24.2): Numerical computing
-- **SciPy** (1.10.1): Scientific computing utilities
-- **Scikit-learn** (1.2.2): Machine learning tools
-- **Matplotlib** (3.7.1): Plotting and visualization
-- **Pandas** (2.0.3): Data manipulation
+- **NumPy** (1.25.2): Core numerical computations
+- **SciPy** (1.10.1): Statistical functions and sparse matrices
+- **Scikit-learn** (1.2.2): K-means clustering and TruncatedSVD
+- **Matplotlib** (3.7.1): Visualization and plotting
+- **Pandas** (2.0.3): Data manipulation (optional)
+- **Joblib**: Parallel processing utilities
+- **TQDM**: Progress bar displays
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/new-feature`)
-3. Make your changes and add tests
-4. Ensure all tests pass (`pytest`)
-5. Commit your changes (`git commit -am 'Add new feature'`)
-6. Push to the branch (`git push origin feature/new-feature`)
-7. Create a Pull Request
+2. Create a feature branch (`git checkout -b feature/new-algorithm`)
+3. Implement your changes with tests
+4. Run the test suite and benchmarks
+5. Update documentation as needed
+6. Submit a pull request
 
-## Research Context
+## Citation
 
-This implementation is designed for research in biclustering algorithms, particularly:
-- Gene expression data analysis
-- Market basket analysis
-- Collaborative filtering
-- Any domain requiring identification of coherent submatrices
+If you use this implementation in your research, please cite:
 
-For questions, issues, or contributions, please use the GitHub issue tracker or contact the maintainers directly.
+```bibtex
+@software{big_matrix_cocluster,
+  title={Big Matrix CoCluster SVD: SVD-based Biclustering for Large-Scale Data Analysis},
+  author={Wu, Zihan},
+  year={2023-2025},
+  url={https://github.com/wzh4464/big_matrix_cocluster}
+}
+```
+
+## License
+
+[Specify your license here]
+
+## Support
+
+For questions, bug reports, or feature requests:
+
+- Open an issue on GitHub
+- Contact the maintainers at <wzh4464@gmail.com>
+
+---
+
+**Note**: This implementation is actively maintained and optimized for research applications. Performance improvements and new features are regularly added based on user feedback and research needs.
