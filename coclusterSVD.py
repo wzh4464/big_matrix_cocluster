@@ -15,6 +15,7 @@ Date      		By   	Comments
 30-08-2023		Zihan	Documented
 30-08-2023	    Zihan   isBiclusterIntersect
 30-08-2023	    Zihan   biclusterList
+2023-10-10      Zihan	packaged into a module
 """
 
 # define class coclusterSVD with only methods (score, scoreHelper)
@@ -22,7 +23,15 @@ from numpy import NaN, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
-import bicluster as bc
+# from . import bicluster as bc
+
+if __name__ == "__main__":
+    import sys
+    sys.path.append("..")
+    # solve the relative import problem
+
+import big_matrix_cocluster.bicluster as bc
+
 # import matplotlib.pyplot as plt
 from scipy.stats import hypergeom
 
@@ -438,6 +447,7 @@ class TpPair:
     def __len__(self):
         return len(self.Mk)
 
-if __name__ == "__main__":
-    result = Tp(range(10, 25, 2))
-    print(result)
+if __name__ == '__main__':
+    A = bc.bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=0)
+    B = bc.bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=1)
+    print(A == B)
