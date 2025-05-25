@@ -7,8 +7,8 @@ from numpy.typing import NDArray
 import logging
 
 # Assuming ScoringMethod and Bicluster are in core.py and bicluster.py respectively:
-from core import ScoringMethod, Matrix  # Assuming Matrix is defined in core.py
-from bicluster import Bicluster  # Assuming Bicluster is defined in bicluster.py
+from .core import ScoringMethod, Matrix  # Assuming Matrix is defined in core.py
+from .bicluster import Bicluster  # Assuming Bicluster is defined in bicluster.py
 
 
 class ScoringStrategy(Protocol):

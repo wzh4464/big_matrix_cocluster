@@ -8,17 +8,17 @@ from numpy.typing import NDArray
 import logging
 
 # Assuming BiclusterConfig, Matrix, Bicluster, ScoringMethod, ClusteringMethod are defined in .core and .bicluster
-from core import (
+from .core import (
     BiclusterConfig,
     Matrix,
     ClusteringMethod,
     ScoringMethod,
 )  # Add ScoringMethod
-from bicluster import (
+from .bicluster import (
     Bicluster,
     IntArray,
 )  # IntArray might be needed from .core or defined in .bicluster
-from scoring import CompatibilityScorer  # Import the specific scorer
+from .scoring import CompatibilityScorer  # Import the specific scorer
 
 
 class BiclusterDetector(ABC):

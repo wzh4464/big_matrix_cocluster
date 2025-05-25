@@ -6,9 +6,9 @@ from numpy.testing import (
     assert_array_equal,
 )
 
-from bicluster import Bicluster
-from core import ScoringMethod, Matrix
-from scoring import CompatibilityScorer, ScoringStrategy
+from src.bicluster import Bicluster
+from src.core import ScoringMethod, Matrix
+from src.scoring import CompatibilityScorer, ScoringStrategy
 
 
 # --- Test Fixtures ---

@@ -92,8 +92,8 @@ class BiclusterConfig:
 # Instead, we'll use string type hints like 'Bicluster' if necessary or ensure Bicluster doesn't import from core.
 # For now, BiclusterAnalyzer uses List['Bicluster'], which is fine with Bicluster in a separate file.
 
-from detection import SVDBiclusterDetector  # Import specific detector
-from bicluster import Bicluster  # BiclusterAnalyzer methods return List[Bicluster]
+from .detection import SVDBiclusterDetector  # Import specific detector
+from .bicluster import Bicluster  # BiclusterAnalyzer methods return List[Bicluster]
 
 
 class BiclusterAnalyzer:

@@ -3,9 +3,9 @@ import numpy as np
 from unittest.mock import MagicMock, patch
 from dataclasses import replace
 
-from bicluster import Bicluster, BICLUSTER_ID_PREFIX
-from core import BiclusterConfig, ScoringMethod, ClusteringMethod, Matrix
-from detection import SVDBiclusterDetector
+from src.bicluster import Bicluster, BICLUSTER_ID_PREFIX
+from src.core import BiclusterConfig, ScoringMethod, ClusteringMethod, Matrix
+from src.detection import SVDBiclusterDetector
 
 # --- Test Fixtures ---
 
@@ -77,7 +77,7 @@ def simple_matrix_two_biclusters() -> Matrix:
 
 
 def test_svd_detector_initialization(core_config_detection: BiclusterConfig):
-    with patch("detection.CompatibilityScorer") as MockScorer:
+    with patch("src.detection.CompatibilityScorer") as MockScorer:
         mock_scorer_instance = MockScorer.return_value
         detector = SVDBiclusterDetector(config=core_config_detection)
         assert detector.config == core_config_detection

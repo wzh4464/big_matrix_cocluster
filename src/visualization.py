@@ -18,10 +18,10 @@ from contextlib import contextmanager
 import logging
 
 # Assuming Bicluster class is in bicluster.py
-from bicluster import Bicluster
+from .bicluster import Bicluster
 
 # Assuming Matrix type alias is in core.py (or a common types file)
-from core import Matrix  # If Matrix is defined in core.py
+from .core import Matrix  # If Matrix is defined in core.py
 
 
 @dataclass

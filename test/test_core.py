@@ -7,7 +7,7 @@ from numpy.testing import assert_array_equal
 
 # Assuming your project structure allows this import path
 # If big_matrix_cocluster is the root package:
-from core import (
+from src.core import (
     BiclusterConfig,
     ScoringMethod,
     ClusteringMethod,
@@ -15,8 +15,8 @@ from core import (
     create_analyzer,
     Matrix,
 )
-from bicluster import Bicluster  # For creating mock biclusters
-from detection import SVDBiclusterDetector  # For isinstance check
+from src.bicluster import Bicluster  # For creating mock biclusters
+from src.detection import SVDBiclusterDetector  # For isinstance check
 
 # --- Tests for BiclusterConfig ---
 
@@ -151,7 +151,7 @@ def analyzer_with_mock_detector_and_results(
             {"id": "mock_bc_B"},
         ),
     ]
-    with patch("core.SVDBiclusterDetector") as MockDetector:
+    with patch("src.core.SVDBiclusterDetector") as MockDetector:
         mock_detector_instance = MockDetector.return_value
         mock_detector_instance.detect.return_value = mock_results
         analyzer = BiclusterAnalyzer(config=mock_bicluster_config)

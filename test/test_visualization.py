@@ -4,9 +4,9 @@ from numpy.testing import assert_array_equal, assert_allclose
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
-from bicluster import Bicluster
-from core import Matrix
-from visualization import (
+from src.bicluster import Bicluster
+from src.core import Matrix
+from src.visualization import (
     BiclusterSpec,
     SyntheticDataConfig,
     SyntheticDataGenerator,

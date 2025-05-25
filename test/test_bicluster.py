@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
-from bicluster import Bicluster, BICLUSTER_ID_PREFIX
-from core import Matrix  # Assuming Matrix is an alias for np.ndarray
+from src.bicluster import Bicluster, BICLUSTER_ID_PREFIX
+from src.core import Matrix  # Assuming Matrix is an alias for np.ndarray
 
 # Constants for testing
 R_IDX_A = np.array([True, True, False, False, True])
