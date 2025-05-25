@@ -9,17 +9,19 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+12-09-2023		Zihan	Added tailPar
 30-08-2023		Zihan	Documented
 30-08-2023	    Zihan   isBiclusterIntersect
 30-08-2023	    Zihan   biclusterList
 """
 
 # define class coclusterSVD with only methods (score, scoreHelper)
-from numpy import NaN, ndarray, sum, abs, corrcoef, eye, min, zeros
+from numpy import NaN, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import bicluster as bc
+import matplotlib.pyplot as plt
 
 
 def scoreHelper(length, C) -> ndarray:
@@ -225,3 +227,128 @@ def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster) -> bool:
     # print("sameRow", sameRow)
     # print("sameCol", sameCol)
     return (bc1.row_idx & bc2.row_idx).any() or (bc1.col_idx & bc2.col_idx).any()
+
+def tailParHelper(partNum, totalNum, threshold, blockSize):
+    '''
+    Compute the tail probability estimation Helper
+    input:
+        partNum: number of partitions           $M^{(k)}$
+        totalNum: total number of elements      $M$
+        threshold: threshold                    $T_m$
+        blockSize: block size                   $\phi$
+        
+    par:
+        s:                                      $s_i^{(k)} 
+                                                    = \cfrac{M^{(k)}}{M}
+                                                        -\cfrac{T_m-1}{\phi_i}$
+    
+    output:
+        tailProb: tail probability estimation   $\exp(-2 (s^{(k)} )^2 \phi)$
+    '''
+    
+    s = partNum / totalNum - (threshold - 1) / blockSize
+    return np.exp(-2 * (s ** 2) * blockSize)
+
+def tailPar(partNum, totalNum, threshold, blockSize):
+    '''
+    Compute the tail probability estimation
+        if blocksize is a array, 
+        then compute the tail probability estimation for each blocksize
+        if blocksize is a integer,
+        then compute directly using the Helper function
+    
+    input:
+        partNum: number of partitions           $M^{(k)}$
+        totalNum: total number of elements      $M$
+        threshold: threshold                    $T_m$
+        blockSize: block size                   $\phi$
+            
+    output:
+        tailProb: tail probability estimation
+    '''
+    
+    if isinstance(blockSize, np.ndarray):
+        tailProb = np.zeros(shape=(blockSize.shape[0],))
+        for i in range(blockSize.shape[0]):
+            tailProb[i] = tailParHelper(partNum, totalNum, threshold, blockSize[i])
+    elif isinstance(blockSize, np.integer) or isinstance(blockSize, int):
+        tailProb = tailParHelper(partNum, totalNum, threshold, blockSize)
+    else:
+        raise TypeError("blockSize should be either a integer or a numpy array")
+    return tailProb
+
+def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label) -> bool:
+    '''
+    This function tells after Tp times of re-partitioning, 
+    will the bicluster labeled by `label` be found
+    
+    input:
+        A: data matrix
+        Tp: number of times of re-partitioning
+        Tm: threshold for row
+        Tn: threshold for column
+        phi: block size x
+        psi: block size y
+        label: label of the bicluster
+        
+    output:
+        isFound: if the bicluster is found
+    '''
+    M, N = A.shape
+    
+    # if phi and psi are integers, then convert them to numpy array
+    if isinstance(phi, np.integer) or isinstance(phi, int):
+        numBlockx = M // phi + 1
+        numBlocky = N // psi + 1
+        phi = np.ones(shape=(numBlockx,)) * phi
+        psi = np.ones(shape=(numBlocky,)) * psi
+        
+        # intize phi and psi
+        phi = phi.astype(int)
+        psi = psi.astype(int)
+    
+    
+    
+    for i in range(Tp):
+        count = 0
+        # re-partitioning
+        permx = np.random.permutation(M)
+        permy = np.random.permutation(N)
+        # print i and --- to show the progress
+        # print(i, end="---")
+        for j in range(phi.shape[0]):
+            for k in range(psi.shape[0]):
+                # partition the matrix
+                # subA = A[permx[j*phi[j]:(j+1)*phi[j]], permy[k*psi[k]:(k+1)*psi[k]]]
+                subA = A[np.ix_(permx[j*phi[j]:(j+1)*phi[j]], permy[k*psi[k]:(k+1)*psi[k]])]
+                # compute the number of partitions
+                # plt.imshow(subA, cmap="hot", interpolation="nearest")
+                # plt.show()
+                
+                # MATLAB: ijCollection = find(subA == label);
+                ijCollection = np.where(subA == label)
+                # print(ijCollection)
+                # if no element in subA is label `label`, then skip
+                if ijCollection[0].shape[0] == 0:
+                    continue
+                
+                count += ijCollection[0].shape[0]
+                
+                # TmTest is number of rows that subA has label `label`
+                # MATLAB TmTest = size(unique(ijCollection(:, 1)), 1);
+                TmTest = np.unique(ijCollection[0]).shape[0]
+                TnTest = np.unique(ijCollection[1]).shape[0]
+                
+                # print("TmTest", TmTest)
+                # print("TnTest", TnTest)
+                
+                if TmTest >= Tm and TnTest >= Tn:
+                    print("found at i =", i, "j =", j, "k =", k)
+                    print("M =", M, "N =", N)
+                    print("phi =", phi, "psi =", psi)
+                    print("Tm =", Tm, "Tn =", Tn)
+                    print("Tp =", Tp)
+                    return True
+        # print("count", count)
+        # print("i", i)
+    return False
