@@ -27,7 +27,7 @@ Date      		By   	Comments
 from scipy.stats import hypergeom
 import big_matrix_cocluster.submatrix as sm
 import big_matrix_cocluster.bicluster as bc
-from numpy import NaN, ndarray, sum, min, zeros
+from numpy import nan, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
@@ -158,7 +158,7 @@ class coclusterer:
             self.scoreMat[i, j] = ratio
             return True
         else:
-            self.scoreMat[i, j] = NaN
+            self.scoreMat[i, j] = nan
             return False
 
     def coclusterAtom(self, tor, k1, k2, X, PARALLEL=False):
@@ -200,7 +200,7 @@ class coclusterer:
                 if rowTrueNum < 2 or colTrueNum < 2:
                     continue
                 if self.isSubmatrixBicluster(subrowI=rowIdx, subcolJ=colIdx, tor=tor, i=i, j=j):
-                    biclusterList.append(bc.bicluster(
+                    biclusterList.append(bc.Bicluster(
                         row_idx=row_idx == i, col_idx=col_idx == j, score=self.scoreMat[i, j]
                     ))
 
@@ -254,7 +254,7 @@ class coclusterer:
 
 
 def scoreHelper(length, C) -> ndarray:
-    """
+    r"""
     helper function for score
     $$ s_i = 1 - \frac{1}{n-1} \sum_{j=1}^n |c_{ij}| $$
     """
@@ -465,7 +465,7 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
     output:
         scoreMat: score matrix
     """
-    scoreMat = np.zeros(shape=(k1, k2)) * NaN
+    scoreMat = np.zeros(shape=(k1, k2)) * nan
 
     def update_counter(counter):
         # with counter.get_lock():
@@ -523,7 +523,7 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
     return scoreMat
 
 
-def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster):
+def isBiclusterIntersectGeneral(bc1: bc.Bicluster, bc2: bc.Bicluster):
     """
     check if two biclusters intersect
     well, in generalized meaning, two biclusters intersect if and only if
@@ -537,7 +537,7 @@ def isBiclusterIntersectGeneral(bc1: bc.bicluster, bc2: bc.bicluster):
 
 
 def tailParHelper(partNum, totalNum, threshold, blockSize):
-    '''
+    r'''
     Compute the tail probability estimation Helper
     input:
         partNum: number of partitions           $M^{(k)}$
@@ -559,7 +559,7 @@ def tailParHelper(partNum, totalNum, threshold, blockSize):
 
 
 def tailPar(partNum, totalNum, threshold, blockSize):
-    '''
+    r'''
     Compute the tail probability estimation
         if blocksize is a array, 
         then compute the tail probability estimation for each blocksize
@@ -765,8 +765,8 @@ class TpPair:
 
 
 if __name__ == '__main__':
-    A = bc.bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
+    A = bc.Bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
         [True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=0)
-    B = bc.bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
+    B = bc.Bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
         [True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=1)
     print(A == B)

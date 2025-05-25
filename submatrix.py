@@ -11,7 +11,7 @@ Date      		By   	Comments
 ----------		------	---------------------------------------------------------
 '''
 
-from attr import dataclass
+from dataclasses import dataclass
 import numpy as np
 
 @dataclass
