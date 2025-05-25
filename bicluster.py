@@ -3,7 +3,7 @@ File: /bicluster.py
 Created Date: Wednesday August 30th 2023
 Author: Zihan Wu
 -----
-Last Modified: Thursday, 31st August 2023 9:37:44 am
+Last Modified: Wednesday, 6th September 2023 10:41:25 pm
 Modified By: the developer formerly known as Zihan at <wzh4464@gmail.com>
 -----
 HISTORY:
@@ -16,6 +16,11 @@ import numpy as np
 
 @dataclass(eq=False)
 class bicluster:
+    '''
+    row_idx: np.ndarray
+    col_idx: np.ndarray
+    score: float
+    '''
     row_idx: np.ndarray
     col_idx: np.ndarray
     score: float

@@ -21,6 +21,7 @@ from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import bicluster as bc
 
+
 def scoreHelper(length, C) -> ndarray:
     """
     helper function for score
@@ -149,8 +150,10 @@ def coclusterAtom(X, tor, k, M, N) -> list:
 
     # [row_idx, row_cluster, row_dist, row_sumd] = kmeans(U, k);
     # [col_idx, col_cluster, col_dist, col_sumd] = kmeans(V, k);
-    kmeans_U = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(U)
-    kmeans_V = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(Vh.T)
+    kmeans_U = KMeans(n_clusters=k, random_state=0, n_init="auto").fit((U @ np.diag(S)))
+    kmeans_V = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(
+        (np.diag(S) @ Vh).T
+    )
     row_idx = kmeans_U.labels_
     col_idx = kmeans_V.labels_
 
