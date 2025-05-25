@@ -9,6 +9,7 @@ Modified By: the developer formerly known as Zihan Wu at <wzh4464@gmail.com>
 HISTORY:
 Date      		By   	Comments
 ----------		------	---------------------------------------------------------
+1-11-2023		Zihan	esitmateRank
 30-10-2023		Zihan	add imageShowBicluster
 30-10-2023		Zihan	Add saveNewMat
 30-10-2023		Zihan	Add scoreInd
@@ -34,6 +35,7 @@ import multiprocessing as mp
 # from line_profiler import LineProfiler
 import time
 from tqdm import tqdm
+from sklearn.decomposition import TruncatedSVD
 
 DEBUG = True
 
@@ -314,40 +316,44 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     std_devs_y = np.std(subX.T, axis=0)
     constant_columns = std_devs == 0
     constant_rows = std_devs_y == 0
-    subX[:, constant_columns] += 1e-15 * np.random.rand(
+    subX[:, constant_columns] += 1e-8 * np.random.rand(
         subX.shape[0], np.sum(constant_columns)
     )
-    subX[constant_rows, :] += 1e-15 * np.random.rand(
+    subX[constant_rows, :] += 1e-8 * np.random.rand(
         np.sum(constant_rows), subX.shape[1]
     )
+    
+    PEARSON = False
 
-    # SS1: np.ndarray = abs(corrcoef(subX, rowvar=False) - eye(lenJ))
-    # SS2: np.ndarray = abs(corrcoef(subX.T, rowvar=False) - eye(lenI))
-    SS1 = zeros(shape=(subX.shape[1], subX.shape[1]))
-    for i in range(subX.shape[1]):
-        for j in range(subX.shape[1]):
-            if i == j:
-                SS1[i, j] = 0
-            else:
-                x1 = subX[:, i]
-                x2 = subX[:, j]
-                SS1[i, j] = np.exp(
-                    -np.linalg.norm(x1 - x2) ** 2
-                    / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
-                )
+    if PEARSON:
+        SS1: np.ndarray = abs(np.corrcoef(subX, rowvar=False) - np.eye(lenJ))
+        SS2: np.ndarray = abs(np.corrcoef(subX.T, rowvar=False) - np.eye(lenI))
+    else:
+        SS1 = zeros(shape=(subX.shape[1], subX.shape[1]))
+        for i in range(subX.shape[1]):
+            for j in range(subX.shape[1]):
+                if i == j:
+                    SS1[i, j] = 0
+                else:
+                    x1 = subX[:, i]
+                    x2 = subX[:, j]
+                    SS1[i, j] = np.exp(
+                        -np.linalg.norm(x1 - x2) ** 2
+                        / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
+                    )
 
-    SS2 = zeros(shape=(subX.shape[0], subX.shape[0]))
-    for i in range(subX.shape[0]):
-        for j in range(subX.shape[0]):
-            if i == j:
-                SS2[i, j] = 0
-            else:
-                x1 = subX[i, :]
-                x2 = subX[j, :]
-                SS2[i, j] = np.exp(
-                    -np.linalg.norm(x1 - x2) ** 2
-                    / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
-                )
+        SS2 = zeros(shape=(subX.shape[0], subX.shape[0]))
+        for i in range(subX.shape[0]):
+            for j in range(subX.shape[0]):
+                if i == j:
+                    SS2[i, j] = 0
+                else:
+                    x1 = subX[i, :]
+                    x2 = subX[j, :]
+                    SS2[i, j] = np.exp(
+                        -np.linalg.norm(x1 - x2) ** 2
+                        / (2 * np.linalg.norm(x1) * np.linalg.norm(x2))
+                    )
     # Pearson correlation fails when there is constant vectors
     # Thus check the NaN and redo the computation
 
@@ -359,6 +365,7 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
 
     # cat s1 and s2 into a vector
     s = np.concatenate((s1, s2), axis=0)
+    score = min(s)
 
     if DEBUG:
         end = time.time()
@@ -383,12 +390,35 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
             f.write("X.shape: " + str(X.shape) + "\n")
             f.write("subrowI.shape: " + str(np.sum(subrowI)) + "\n")
             f.write("subcolJ.shape: " + str(np.sum(subcolJ)) + "\n")
+            f.write("score: " + str(score) + "\n")
             if score_time > 100:
                 f.write("submatrix_" + str(i) + ".npy\n")
             f.write("-----\n")
             
-    return min(s)
+    return score
 
+def estimateRank(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray, tor1 = 0.95, tor2 = 0.99, DEBUG = True) -> tuple:
+    """
+    Estimate the rank of the submatrix X_IJ
+    input:
+        X: the data matrix
+        I: the row cluster assignment; I is boolean array.
+        J: the column cluster assignment; J is boolean array.
+    output:
+        r: rank of the submatrix
+    """
+    subX = X[np.ix_(subrowI, subcolJ)]
+    svd = TruncatedSVD(n_components=np.min(subX.shape), random_state=42)
+    svd.fit(subX)
+    acc = np.cumsum(svd.explained_variance_ratio_)
+    r1 = np.where(acc > tor1)[0][0]
+    r2 = np.where(acc > tor2)[0][0]
+    if DEBUG:
+        print("r1", r1)
+        print("r2", r2)
+        print("acc", acc)
+        
+    return r1, r2
 
 def corHelper(SS, X):
     """
