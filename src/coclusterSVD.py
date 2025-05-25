@@ -25,8 +25,8 @@ Date      		By   	Comments
 
 # define class coclusterSVD with only methods (score, scoreHelper)
 from scipy.stats import hypergeom
-import big_matrix_cocluster.submatrix as sm
-import big_matrix_cocluster.bicluster as bc
+import submatrix as sm
+import bicluster as bc
 from numpy import nan, ndarray, sum, min, zeros
 import numpy as np
 from numpy.linalg import svd
@@ -34,6 +34,7 @@ from sklearn.cluster import KMeans
 import os
 import matplotlib.pyplot as plt
 import multiprocessing as mp
+
 # from line_profiler import LineProfiler
 import time
 from tqdm import tqdm
@@ -45,6 +46,7 @@ DEBUG = False
 
 if __name__ == "__main__":
     import sys
+
     sys.path.append("..")
     # solve the relative import problem
 
@@ -110,10 +112,12 @@ class coclusterer:
             with open(path, "w") as f:
                 for i in range(len(self.biclusterList)):
                     f.write(f"bicluster {str(i)}" + "\n")
-                    f.write("row members " +
-                            str(self.biclusterList[i].row_bi_labels) + "\n")
-                    f.write("col members " +
-                            str(self.biclusterList[i].col_bi_labels) + "\n")
+                    f.write(
+                        "row members " + str(self.biclusterList[i].row_bi_labels) + "\n"
+                    )
+                    f.write(
+                        "col members " + str(self.biclusterList[i].col_bi_labels) + "\n"
+                    )
                     f.write(f"score {str(self.biclusterList[i].score)}" + "\n")
                     # print ------
                     f.write("------" + "\n")
@@ -135,7 +139,14 @@ class coclusterer:
             os.makedirs(os.path.dirname(filename))
         np.save(filename, self.newMat)
 
-    def isSubmatrixBicluster(self, subrowI: np.ndarray, subcolJ: np.ndarray, i: int, j: int, tor: float = 0.02):
+    def isSubmatrixBicluster(
+        self,
+        subrowI: np.ndarray,
+        subcolJ: np.ndarray,
+        i: int,
+        j: int,
+        tor: float = 0.02,
+    ):
         """
         check if the submatrix X_IJ is a bicluster
 
@@ -152,7 +163,7 @@ class coclusterer:
         subX = self.matrix[np.ix_(subrowI, subcolJ)]
         svd = TruncatedSVD(n_components=np.min(subX.shape), random_state=42)
         svd.fit(subX)
-        ratio = svd.singular_values_[1]/svd.singular_values_[0]
+        ratio = svd.singular_values_[1] / svd.singular_values_[0]
         # if second largest singular value is small, then return True
         if ratio < tor:
             self.scoreMat[i, j] = ratio
@@ -178,8 +189,9 @@ class coclusterer:
 
         # [row_idx, row_cluster, row_dist, row_sumd] = kmeans(U, k);
         # [col_idx, col_cluster, col_dist, col_sumd] = kmeans(V, k);
-        kmeans_U = KMeans(n_clusters=k1, random_state=0,
-                          n_init="auto").fit((self.U @ np.diag(self.S)))
+        kmeans_U = KMeans(n_clusters=k1, random_state=0, n_init="auto").fit(
+            (self.U @ np.diag(self.S))
+        )
         kmeans_V = KMeans(n_clusters=k2, random_state=0, n_init="auto").fit(
             (np.diag(self.S) @ self.Vh).T
         )
@@ -199,10 +211,16 @@ class coclusterer:
                 colTrueNum = sum(a=colIdx)
                 if rowTrueNum < 2 or colTrueNum < 2:
                     continue
-                if self.isSubmatrixBicluster(subrowI=rowIdx, subcolJ=colIdx, tor=tor, i=i, j=j):
-                    biclusterList.append(bc.Bicluster(
-                        row_idx=row_idx == i, col_idx=col_idx == j, score=self.scoreMat[i, j]
-                    ))
+                if self.isSubmatrixBicluster(
+                    subrowI=rowIdx, subcolJ=colIdx, tor=tor, i=i, j=j
+                ):
+                    biclusterList.append(
+                        bc.Bicluster(
+                            row_idx=row_idx == i,
+                            col_idx=col_idx == j,
+                            score=self.scoreMat[i, j],
+                        )
+                    )
 
         return biclusterList
 
@@ -218,14 +236,15 @@ class coclusterer:
             return None
 
         # Set the font size and DPI
-        plt.rcParams['font.size'] = 6  # very small font
-        plt.rcParams['figure.dpi'] = 300  # very high dpi
+        plt.rcParams["font.size"] = 6  # very small font
+        plt.rcParams["figure.dpi"] = 300  # very high dpi
 
         # plt
         canvas = np.zeros(shape=(self.M, self.N))
         for i in range(len(self.biclusterList)):
-            canvas[np.ix_(self.biclusterList[i].row_idx,
-                          self.biclusterList[i].col_idx)] = i + 1
+            canvas[
+                np.ix_(self.biclusterList[i].row_idx, self.biclusterList[i].col_idx)
+            ] = (i + 1)
 
         # use subplot to show the original matrix and the new matrix
         fig, (ax1, ax2) = plt.subplots(1, 2)
@@ -261,8 +280,7 @@ def scoreHelper(length, C) -> ndarray:
     # check if there is nan in C
     if np.isnan(C).any():
         # throw exception
-        raise ValueError(
-            "C contains NaN, probably because of constant rows/columns")
+        raise ValueError("C contains NaN, probably because of constant rows/columns")
     return 1 - 1 / (length - 1) * sum(a=C, axis=1)
 
 
@@ -271,8 +289,8 @@ def scoreInd(X: np.ndarray, subrowIind: np.ndarray, subcolJind: np.ndarray) -> f
     Use subindex to compute the score
     Args:
         X (np.ndarray): the data matrix
-        subrowIind (np.ndarray): index version of subrowI 
-        subcolJind (np.ndarray): index version of subcolJ 
+        subrowIind (np.ndarray): index version of subrowI
+        subcolJind (np.ndarray): index version of subcolJ
 
     Returns:
         float: score
@@ -400,7 +418,14 @@ def score(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray) -> float:
     return score
 
 
-def estimateRank(X: np.ndarray, subrowI: np.ndarray, subcolJ: np.ndarray, tor1=0.95, tor2=0.99, DEBUG=True) -> tuple:
+def estimateRank(
+    X: np.ndarray,
+    subrowI: np.ndarray,
+    subcolJ: np.ndarray,
+    tor1=0.95,
+    tor2=0.99,
+    DEBUG=True,
+) -> tuple:
     """
     Estimate the rank of the submatrix X_IJ
     input:
@@ -448,8 +473,7 @@ def corHelper(SS, X):
                 elif flag1:
                     S[i, j] = 1
                 else:
-                    raise Exception(
-                        "Error: NaN in correlation matrix (corHelper)")
+                    raise Exception("Error: NaN in correlation matrix (corHelper)")
 
     return S
 
@@ -473,7 +497,7 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
 
     if PARALLEL:
         with mp.Manager() as manager:
-            counter = manager.Value('i', 0)  # Shared counter
+            counter = manager.Value("i", 0)  # Shared counter
             pool = mp.Pool(k1 * k2)
 
             result = []
@@ -485,11 +509,17 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
                     jumped.append(i)
                     update_counter(counter)  # Update the counter
                     continue
-                result.append([
-                    pool.apply_async(score, args=(
-                        X, row_idx == i // k2, col_idx == i % k2), callback=lambda x: update_counter(counter)),
-                    i // k2, i % k2
-                ])
+                result.append(
+                    [
+                        pool.apply_async(
+                            score,
+                            args=(X, row_idx == i // k2, col_idx == i % k2),
+                            callback=lambda x: update_counter(counter),
+                        ),
+                        i // k2,
+                        i % k2,
+                    ]
+                )
 
             pool.close()
 
@@ -517,8 +547,7 @@ def compute_scoreMat(k1, k2, X, row_idx, col_idx, PARALLEL=False):
                 # or col_idx == j has less than one element, then skip
                 if sum(a=row_idx == i) < 2 or sum(a=col_idx == j) < 2:
                     continue
-                scoreMat[i, j] = score(
-                    X=X, subrowI=row_idx == i, subcolJ=col_idx == j)
+                scoreMat[i, j] = score(X=X, subrowI=row_idx == i, subcolJ=col_idx == j)
 
     return scoreMat
 
@@ -537,7 +566,7 @@ def isBiclusterIntersectGeneral(bc1: bc.Bicluster, bc2: bc.Bicluster):
 
 
 def tailParHelper(partNum, totalNum, threshold, blockSize):
-    r'''
+    r"""
     Compute the tail probability estimation Helper
     input:
         partNum: number of partitions           $M^{(k)}$
@@ -546,22 +575,22 @@ def tailParHelper(partNum, totalNum, threshold, blockSize):
         blockSize: block size                   $\phi$
 
     par:
-        s:                                      $s_i^{(k)} 
+        s:                                      $s_i^{(k)}
                                                     = \cfrac{M^{(k)}}{M}
                                                         -\cfrac{T_m-1}{\phi_i}$
 
     output:
         tailProb: tail probability estimation   $\exp(-2 (s^{(k)} )^2 \phi)$
-    '''
+    """
 
     s = partNum / totalNum - (threshold - 1) / blockSize
-    return np.exp(-2 * (s ** 2) * blockSize)
+    return np.exp(-2 * (s**2) * blockSize)
 
 
 def tailPar(partNum, totalNum, threshold, blockSize):
-    r'''
+    r"""
     Compute the tail probability estimation
-        if blocksize is a array, 
+        if blocksize is a array,
         then compute the tail probability estimation for each blocksize
         if blocksize is a integer,
         then compute directly using the Helper function
@@ -574,24 +603,22 @@ def tailPar(partNum, totalNum, threshold, blockSize):
 
     output:
         tailProb: tail probability estimation
-    '''
+    """
 
     if isinstance(blockSize, np.ndarray):
         tailProb = np.zeros(shape=(blockSize.shape[0],))
         for i in range(blockSize.shape[0]):
-            tailProb[i] = tailParHelper(
-                partNum, totalNum, threshold, blockSize[i])
+            tailProb[i] = tailParHelper(partNum, totalNum, threshold, blockSize[i])
     elif isinstance(blockSize, (np.integer, int)):
         tailProb = tailParHelper(partNum, totalNum, threshold, blockSize)
     else:
-        raise TypeError(
-            "blockSize should be either a integer or a numpy array")
+        raise TypeError("blockSize should be either a integer or a numpy array")
     return tailProb
 
 
 def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
-    '''
-    This function tells after Tp times of re-partitioning, 
+    """
+    This function tells after Tp times of re-partitioning,
     will the bicluster labeled by `label` be found
 
     input:
@@ -605,7 +632,7 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
 
     output:
         number of times of re-partitioning that the bicluster is found
-    '''
+    """
     M, N = A.shape
 
     # if phi and psi are integers, then convert them to numpy array
@@ -630,8 +657,12 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
             for k in range(psi.shape[0]):
                 # partition the matrix
                 # subA = A[permx[j*phi[j]:(j+1)*phi[j]], permy[k*psi[k]:(k+1)*psi[k]]]
-                subA = A[np.ix_(permx[j*phi[j]:(j+1)*phi[j]],
-                                permy[k*psi[k]:(k+1)*psi[k]])]
+                subA = A[
+                    np.ix_(
+                        permx[j * phi[j] : (j + 1) * phi[j]],
+                        permy[k * psi[k] : (k + 1) * psi[k]],
+                    )
+                ]
                 # compute the number of partitions
                 # plt.imshow(subA, cmap="hot", interpolation="nearest")
                 # plt.show()
@@ -666,7 +697,7 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
 
 
 def Tp(ranges: range, phi=100, Tm=4, M=1000):
-    '''
+    """
     compute the number of times of re-partitioning theoretically
     input:
         ranges: range of block size
@@ -675,14 +706,14 @@ def Tp(ranges: range, phi=100, Tm=4, M=1000):
         M: number of rows/columns (assume M = N)
     output:
         number of times of re-partitioning
-    '''
+    """
     m = M / phi
 
     def q(Mk):
         return hypergeom.cdf(Tm - 1, M, phi, Mk)
 
     def qq(Mk):
-        return (1 - (1 - q(Mk)) ** 2) ** (m ** 2)
+        return (1 - (1 - q(Mk)) ** 2) ** (m**2)
 
     def Tp_Mk(Mk):
         return np.log(0.01) / np.log(qq(Mk))
@@ -692,7 +723,7 @@ def Tp(ranges: range, phi=100, Tm=4, M=1000):
 
 
 def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
-    '''
+    """
     compute the number of times of re-partitioning experimentally
     input:
         A: data matrix
@@ -705,7 +736,7 @@ def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
     output:
         ratio: ratio of times of re-partitioning that the bicluster is found
         number of times of re-partitioning that the bicluster is found
-    '''
+    """
     count = 0
     result = []
     for _ in range(num_iter):
@@ -713,7 +744,7 @@ def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
         result.append(ite)
         if ite != -1:
             count += 1
-    return count/num_iter, result
+    return count / num_iter, result
 
 
 class TpPair_List:
@@ -764,9 +795,91 @@ class TpPair:
         return len(self.Mk)
 
 
-if __name__ == '__main__':
-    A = bc.Bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
-        [True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=0)
-    B = bc.Bicluster(row_idx=np.array([True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), col_idx=np.array(
-        [True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]), score=1)
+if __name__ == "__main__":
+    A = bc.Bicluster(
+        row_idx=np.array(
+            [
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ]
+        ),
+        col_idx=np.array(
+            [
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ]
+        ),
+        score=0,
+    )
+    B = bc.Bicluster(
+        row_idx=np.array(
+            [
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ]
+        ),
+        col_idx=np.array(
+            [
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ]
+        ),
+        score=1,
+    )
     print(A == B)

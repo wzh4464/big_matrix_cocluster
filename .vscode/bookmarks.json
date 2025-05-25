@@ -1,7 +1,7 @@
 {
 	"files": [
 		{
-			"path": "coclusterSVD.py",
+			"path": "src/coclusterSVD.py",
 			"bookmarks": [
 				{
 					"line": 136,
