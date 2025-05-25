@@ -13,4 +13,5 @@ dependencies = [
     "scikit-learn>=1.6.1",
     "tqdm>=4.67.1",
     "seaborn>=0.11",
+    "black>=25.1.0",
 ]

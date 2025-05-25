@@ -2,7 +2,7 @@
 *.so
 *.o
 *.c
-__pycache__/**
+**/__pycache__/**
 
 uv.lock
 .coverage
