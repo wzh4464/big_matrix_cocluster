@@ -23,7 +23,7 @@ import numpy as np
 from numpy.linalg import svd
 from sklearn.cluster import KMeans
 import bicluster as bc
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from scipy.stats import hypergeom
 
 def scoreHelper(length, C) -> ndarray:
@@ -300,8 +300,8 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
     
     # if phi and psi are integers, then convert them to numpy array
     if isinstance(phi, np.integer) or isinstance(phi, int):
-        numBlockx = M // phi + 1
-        numBlocky = N // psi + 1
+        numBlockx = M // phi 
+        numBlocky = N // psi 
         phi = np.ones(shape=(numBlockx,)) * phi
         psi = np.ones(shape=(numBlocky,)) * psi
         
@@ -351,15 +351,22 @@ def isBiclusterFoundConst(A, Tp, Tm, Tn, phi, psi, label):
                     # print("phi =", phi, "psi =", psi)
                     # print("Tm =", Tm, "Tn =", Tn)
                     # print("Tp =", Tp)
-                    return i
+                    return i + 1
         # print("count", count)
         # print("i", i)
-    return Tp
+    return -1
 
-def Tp(ranges, phi=100, Tm=4, M=1000):
-    # phi = 100
-    # Tm = 4
-    # M = 1000
+def Tp(ranges: range, phi=100, Tm=4, M=1000):
+    '''
+    compute the number of times of re-partitioning theoretically
+    input:
+        ranges: range of block size
+        phi: block size (assume phi = psi)
+        Tm: threshold for row (assume Tm = Tn)
+        M: number of rows/columns (assume M = N)
+    output:
+        number of times of re-partitioning
+    '''
     m = M / phi
     
     def q(Mk):
@@ -373,6 +380,63 @@ def Tp(ranges, phi=100, Tm=4, M=1000):
 
     # ceil and convert to int
     return np.ceil([Tp_Mk(Mk) for Mk in ranges]).astype(int)
+
+def find_bicluster_count(A, Tp, Tm, Tn, sizex, sizey, num_iter=100):
+    '''
+    compute the number of times of re-partitioning experimentally
+    input:
+        A: data matrix
+        Tp: number of times of re-partitioning
+        Tm: threshold for row
+        Tn: threshold for column
+        sizex: block size x
+        sizey: block size y
+        num_iter: number of iterations
+    output:
+        ratio: ratio of times of re-partitioning that the bicluster is found
+        number of times of re-partitioning that the bicluster is found
+    '''
+    count = 0
+    result = []
+    for i in range(num_iter):
+        ite = isBiclusterFoundConst(A, Tp, Tm, Tn, sizex, sizey, 10)
+        result.append(ite)
+        if ite != -1:
+            count += 1
+    return count/num_iter, result
+
+class TpPair_List:
+    def __init__(self, ranges, Tp_list):
+        self.TpList = []
+        if len(ranges) != len(Tp_list):
+            raise ValueError("len(ranges) != len(Tp_list)")
+        if len(ranges) == 0:
+            raise ValueError("len(ranges) == 0")
+        for i in range(len(ranges)):
+            self.TpList.append(TpPair(ranges[i], Tp_list[i]))
+            
+    def __getitem__(self, index):
+        return self.TpList[index]
+    
+    def __len__(self):
+        return len(self.TpList)
+
+class TpPair:
+    def __init__(self, Mk, Tp):
+        self.Mk = Mk
+        self.Tp = Tp
+
+    def __str__(self):
+        return "Mk: " + str(self.Mk) + " Tp: " + str(self.Tp)
+
+    def __repr__(self):
+        return "Mk: " + str(self.Mk) + " Tp: " + str(self.Tp)
+
+    def __getitem__(self, index):
+        return (self.Mk[index], self.Tp[index])
+
+    def __len__(self):
+        return len(self.Mk)
 
 if __name__ == "__main__":
     result = Tp(range(10, 25, 2))
