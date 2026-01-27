@@ -55,6 +55,17 @@ class PipelineConfig:
     parallel_processing: bool = True
     use_caching: bool = True
 
+    # DiMergeCo options
+    enable_dimergeco: bool = False  # Enable complete DiMergeCo workflow
+    use_svr_scoring: bool = False   # Use SVR scoring method
+    svr_normalized: bool = True     # Use normalized SVR (S(A))
+    use_partitioning: bool = False  # Use probabilistic partitioning
+    use_hierarchical_merge: bool = False  # Use hierarchical merging
+
+    # Partition configuration (imported lazily to avoid circular deps)
+    partition_config: Optional[Any] = None  # PartitionConfig
+    hierarchical_merge_config: Optional[Any] = None  # HierarchicalMergeConfig
+
     # Output and reporting
     output_directory: str = "biclustering_results"
     save_intermediate_results: bool = True
@@ -67,11 +78,19 @@ class PipelineConfig:
 
     def to_bicluster_config(self) -> BiclusterConfig:
         """Convert to BiclusterConfig for analyzer initialization."""
+        # Apply SVR scoring if enabled
+        scoring_method = self.scoring_method
+        if self.use_svr_scoring or self.enable_dimergeco:
+            scoring_method = (
+                ScoringMethod.SVR_NORMALIZED if self.svr_normalized
+                else ScoringMethod.SVR
+            )
+
         return BiclusterConfig(
             k1=self.k1,
             k2=self.k2,
             tolerance=self.tolerance,
-            scoring_method=self.scoring_method,
+            scoring_method=scoring_method,
             clustering_method=self.clustering_method,
             random_state=self.random_state,
             parallel=self.parallel_processing,
@@ -140,10 +159,20 @@ class BiclusteringPipeline:
         self.config = config or PipelineConfig()
         self.output_dir = Path(self.config.output_directory)
 
-        # Initialize components
-        self.analyzer = BiclusterAnalyzer(self.config.to_bicluster_config())
-        self.visualizer = BiclusterVisualizer()
+        # Initialize logging first (needed by other methods)
         self.logger = self._configure_logging()
+
+        # Initialize components based on DiMergeCo settings
+        base_config = self.config.to_bicluster_config()
+
+        if self.config.enable_dimergeco or self.config.use_partitioning:
+            # Use partitioned detection
+            self.analyzer = self._init_dimergeco_analyzer(base_config)
+        else:
+            # Standard analyzer
+            self.analyzer = BiclusterAnalyzer(base_config)
+
+        self.visualizer = BiclusterVisualizer()
 
         # State management
         self.input_matrix: Optional[Matrix] = None
@@ -154,6 +183,22 @@ class BiclusteringPipeline:
         # Setup output directory
         if self.config.save_intermediate_results or self.config.generate_visualizations:
             self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _init_dimergeco_analyzer(self, base_config: BiclusterConfig) -> BiclusterAnalyzer:
+        """Initialize analyzer with DiMergeCo components."""
+        from .partitioning import PartitionConfig
+
+        partition_config = self.config.partition_config
+        if partition_config is None:
+            # Use defaults from config or create new
+            partition_config = PartitionConfig(random_state=self.config.random_state)
+
+        analyzer = BiclusterAnalyzer.create_partitioned_analyzer(
+            base_config, partition_config
+        )
+
+        self.logger.info("Initialized DiMergeCo pipeline with partitioned detection")
+        return analyzer
 
     def _configure_logging(self) -> logging.Logger:
         """Configure pipeline-specific logging."""
@@ -286,8 +331,23 @@ class BiclusteringPipeline:
             self.analyzer.fit(self.input_matrix)
             detected_biclusters = self.analyzer.get_biclusters()
 
-            # Apply post-processing filters
-            if self.config.max_overlap < 1.0:
+            # DiMergeCo: Apply hierarchical merging if enabled
+            if self.config.enable_dimergeco or self.config.use_hierarchical_merge:
+                self.logger.info("Applying hierarchical merging")
+                from .hierarchical_merge import HierarchicalMergeConfig
+
+                merge_config = self.config.hierarchical_merge_config
+                if merge_config is None:
+                    merge_config = HierarchicalMergeConfig()
+
+                detected_biclusters = self.analyzer.hierarchical_merge(
+                    n_partitions=8,  # Can be made configurable
+                    merge_config=merge_config,
+                    matrix_shape=self.input_matrix.shape,
+                )
+
+            # Apply post-processing filters (if not using DiMergeCo, which does its own filtering)
+            elif self.config.max_overlap < 1.0:
                 self.logger.info("Applying overlap filtering")
                 detected_biclusters = self.analyzer.merge_overlapping(
                     self.config.max_overlap
@@ -616,6 +676,89 @@ def run_complete_analysis(
     pipeline.fit()
 
     return pipeline
+
+
+def create_dimergeco_pipeline(
+    k1: int = 5,
+    k2: int = 5,
+    tolerance: float = 0.05,
+    # Partitioning parameters (Algorithm 2)
+    T_m: int = 30,
+    T_n: int = 30,
+    T_p: int = 5,
+    P_thresh: float = 0.95,
+    # Hierarchical merging parameters
+    overlap_threshold: float = 0.3,
+    use_spatial_indexing: bool = True,
+    # Output settings
+    output_directory: str = "dimergeco_results",
+    random_state: Optional[int] = 42,
+    **kwargs,
+) -> BiclusteringPipeline:
+    """
+    Create a complete DiMergeCo pipeline with all components.
+
+    Convenience function that configures:
+    - SVR scoring (normalized)
+    - Probabilistic matrix partitioning with theoretical guarantees
+    - Hierarchical merging with spatial indexing
+
+    Args:
+        k1, k2: SVD clustering parameters
+        tolerance: Quality threshold for bicluster validation
+        T_m, T_n: Minimum block thresholds for partitioning (Algorithm 2)
+        T_p: Number of partition iterations
+        P_thresh: Minimum detection probability guarantee (Theorem 2)
+        overlap_threshold: Jaccard threshold for hierarchical merging
+        use_spatial_indexing: Enable O(1) spatial index for overlap queries
+        output_directory: Directory for results and visualizations
+        random_state: Random seed for reproducibility
+        **kwargs: Additional configuration parameters
+
+    Returns:
+        Configured BiclusteringPipeline with DiMergeCo enabled
+
+    Example:
+        >>> pipeline = create_dimergeco_pipeline(
+        ...     k1=8, k2=8,
+        ...     T_m=40, T_n=40, T_p=5, P_thresh=0.95,
+        ...     output_directory="results"
+        ... )
+        >>> pipeline.generate_synthetic_data(n_biclusters=5, matrix_shape=(1000, 800))
+        >>> pipeline.fit()
+        >>> results = pipeline.get_results()
+    """
+    from .partitioning import PartitionConfig
+    from .hierarchical_merge import HierarchicalMergeConfig
+
+    config = PipelineConfig(
+        k1=k1,
+        k2=k2,
+        tolerance=tolerance,
+        random_state=random_state,
+        # Enable DiMergeCo components
+        enable_dimergeco=True,
+        use_svr_scoring=True,
+        svr_normalized=True,
+        use_partitioning=True,
+        use_hierarchical_merge=True,
+        # Partition configuration
+        partition_config=PartitionConfig(
+            T_m=T_m, T_n=T_n, T_p=T_p, P_thresh=P_thresh, random_state=random_state
+        ),
+        # Hierarchical merge configuration
+        hierarchical_merge_config=HierarchicalMergeConfig(
+            overlap_threshold=overlap_threshold,
+            use_spatial_indexing=use_spatial_indexing,
+        ),
+        output_directory=output_directory,
+        save_intermediate_results=True,
+        generate_visualizations=True,
+        create_detailed_report=True,
+        **kwargs,
+    )
+
+    return BiclusteringPipeline(config)
 
 
 if __name__ == "__main__":
