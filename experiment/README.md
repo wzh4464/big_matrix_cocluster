@@ -21,6 +21,60 @@ python experiment/simple_test.py
 - ARI > 0.8
 - 显示 "✅ 测试通过！"
 
+## 服务器运行大数据集
+
+### 使用便捷脚本（推荐）
+
+```bash
+# 快速测试环境
+./experiment/run_server.sh test
+
+# 运行CLASSIC4规模实验（6,461×4,667）
+./experiment/run_server.sh classic4
+
+# 运行大规模实验（10,000×8,000）
+./experiment/run_server.sh large
+
+# 运行超大规模实验（20,000×15,000）
+./experiment/run_server.sh xlarge
+
+# 批量运行多个实验
+./experiment/run_server.sh batch "classic4 large xlarge"
+
+# 自定义规模（15,000×12,000，8个biclusters）
+./experiment/run_server.sh custom 15000 12000 8
+
+# 后台运行
+nohup ./experiment/run_server.sh classic4 > classic4.log 2>&1 &
+```
+
+### 使用Python直接运行
+
+```bash
+# 设置环境
+export PYTHONPATH=.
+
+# 运行CLASSIC4
+python experiment/run_large_scale_experiments.py --dataset classic4 --output results/classic4
+
+# 查看所有可用数据集
+python experiment/run_large_scale_experiments.py
+
+# 批量运行
+python experiment/run_large_scale_experiments.py --batch --batch-datasets classic4 large
+```
+
+### 服务器推荐配置
+
+| 数据集 | 矩阵大小 | 内存需求 | CPU | 预计时间 |
+|--------|---------|---------|-----|---------|
+| classic4 | 6,461×4,667 | 4GB+ | 2核+ | 1-2小时 |
+| large | 10,000×8,000 | 8GB+ | 4核+ | 2-4小时 |
+| xlarge | 20,000×15,000 | 16GB+ | 8核+ | 4-8小时 |
+| amazon | 123,321×23,379 | 32GB+ | 16核+ | 10-20小时 |
+
+**详细服务器运行指南**: 查看 `experiment/SERVER_GUIDE.md`
+
 ### 2. 完整实验复现
 
 运行论文规模的实验：
