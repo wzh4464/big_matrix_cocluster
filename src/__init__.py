@@ -37,8 +37,18 @@ from .core import (
 )
 
 # Detection and scoring algorithms
-from .detection import BiclusterDetector, SVDBiclusterDetector
-from .scoring import ScoringStrategy, CompatibilityScorer
+from .detection import BiclusterDetector, SVDBiclusterDetector, PartitionedBiclusterDetector
+from .scoring import ScoringStrategy, CompatibilityScorer, SVRScorer
+
+# Partitioning for DiMergeCo
+from .partitioning import PartitionConfig, MatrixPartitioner
+
+# Hierarchical merging for DiMergeCo
+from .hierarchical_merge import (
+    HierarchicalMergeConfig,
+    HierarchicalMerger,
+    BiclusterSpatialIndex,
+)
 
 # Visualization and data generation
 from .visualization import (
@@ -50,7 +60,12 @@ from .visualization import (
 )
 
 # High-level pipeline interface
-from .pipeline import BiclusteringPipeline, PipelineConfig, create_pipeline
+from .pipeline import (
+    BiclusteringPipeline,
+    PipelineConfig,
+    create_pipeline,
+    create_dimergeco_pipeline,
+)
 
 
 # Convenience factory functions
@@ -212,8 +227,17 @@ __all__ = [
     # Detection and scoring
     "BiclusterDetector",
     "SVDBiclusterDetector",
+    "PartitionedBiclusterDetector",
     "ScoringStrategy",
     "CompatibilityScorer",
+    "SVRScorer",
+    # Partitioning (DiMergeCo)
+    "PartitionConfig",
+    "MatrixPartitioner",
+    # Hierarchical merging (DiMergeCo)
+    "HierarchicalMergeConfig",
+    "HierarchicalMerger",
+    "BiclusterSpatialIndex",
     # Visualization and data generation
     "BiclusterVisualizer",
     "SyntheticDataGenerator",
@@ -225,6 +249,7 @@ __all__ = [
     # Factory functions
     "create_analyzer",
     "create_pipeline",
+    "create_dimergeco_pipeline",  # DiMergeCo complete pipeline
     "create_synthetic_data",
     "create_synthetic_data_with_generator",
     "analyze_matrix",

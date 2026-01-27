@@ -3,6 +3,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Optional
+from collections import defaultdict
 import numpy as np
 from numpy.typing import NDArray
 import logging
@@ -18,7 +19,7 @@ from .bicluster import (
     Bicluster,
     IntArray,
 )  # IntArray might be needed from .core or defined in .bicluster
-from .scoring import CompatibilityScorer  # Import the specific scorer
+from .scoring import CompatibilityScorer, SVRScorer  # Import scoring strategies
 
 
 class BiclusterDetector(ABC):
@@ -26,8 +27,12 @@ class BiclusterDetector(ABC):
 
     def __init__(self, config: BiclusterConfig):
         self.config = config
-        # Pass the scoring_method from config to the Scorer
-        self.scorer = CompatibilityScorer(config.scoring_method)
+        # Initialize appropriate scorer based on scoring_method
+        if config.scoring_method in (ScoringMethod.SVR, ScoringMethod.SVR_NORMALIZED):
+            normalized = config.scoring_method == ScoringMethod.SVR_NORMALIZED
+            self.scorer = SVRScorer(normalized=normalized)
+        else:
+            self.scorer = CompatibilityScorer(config.scoring_method)
         self.logger = logging.getLogger(self.__class__.__name__)
 
     @abstractmethod
@@ -376,3 +381,288 @@ class SVDBiclusterDetector(BiclusterDetector):
             if not is_too_overlapping:
                 selected_biclusters.append(candidate_bc)
         return selected_biclusters
+
+
+class PartitionedBiclusterDetector(BiclusterDetector):
+    """
+    Bicluster detector using probabilistic matrix partitioning.
+
+    Implements the partitioning strategy from the DiMergeCo paper,
+    wrapping SVDBiclusterDetector for independent detection on each partition.
+
+    The detector:
+    1. Computes optimal partition parameters (with theoretical guarantees)
+    2. Executes T_p iterations of random partitioning
+    3. Performs independent detection on each block
+    4. Maps results back to original coordinates
+    5. Aggregates and deduplicates across all partitions
+    """
+
+    def __init__(
+        self,
+        base_config: BiclusterConfig,
+        partition_config: Optional["PartitionConfig"] = None,
+    ):
+        """
+        Initialize partitioned detector.
+
+        Args:
+            base_config: Configuration for base bicluster detection
+            partition_config: Configuration for partitioning strategy
+        """
+        super().__init__(base_config)
+
+        # Import here to avoid circular dependency
+        from .partitioning import PartitionConfig, MatrixPartitioner
+
+        self.partition_config = partition_config or PartitionConfig()
+        self.partitioner = MatrixPartitioner(self.partition_config)
+        self.base_detector = SVDBiclusterDetector(base_config)
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def detect(
+        self,
+        matrix: Matrix,
+        estimated_cocluster_sizes: Optional[List[Tuple[int, int]]] = None,
+        **kwargs,
+    ) -> List[Bicluster]:
+        """
+        Detect biclusters using probabilistic partitioning.
+
+        Workflow:
+        1. Compute partition parameters (automatic or using hints)
+        2. Execute T_p iterations:
+           - Partition matrix randomly
+           - Detect independently on each block
+           - Map back to original coordinates
+        3. Aggregate all results and remove duplicates
+
+        Args:
+            matrix: Input matrix for analysis
+            estimated_cocluster_sizes: Optional hints about expected co-cluster sizes
+            **kwargs: Additional arguments passed to base detector
+
+        Returns:
+            List of detected biclusters (deduplicated)
+        """
+        M, N = matrix.shape
+
+        self.logger.info(
+            f"Partitioned detection: {M}×{N} matrix, "
+            f"T_m={self.partition_config.T_m}, T_n={self.partition_config.T_n}"
+        )
+
+        # Step 1: Compute partition parameters
+        m, n, phi_list, psi_list, T_p = self.partitioner.compute_partition_parameters(
+            M, N, estimated_cocluster_sizes
+        )
+
+        # Step 2: T_p iterations
+        all_biclusters: List[Bicluster] = []
+
+        for iteration in range(T_p):
+            self.logger.info(f"Partition iteration {iteration + 1}/{T_p}")
+
+            blocks = self.partitioner.partition_matrix(matrix, iteration)
+            iteration_biclusters = []
+
+            # Step 3: Detect independently on each block
+            for block_idx, (submatrix, slices, coords, row_idx, col_idx) in enumerate(
+                blocks
+            ):
+                try:
+                    block_biclusters = self.base_detector.detect(submatrix, **kwargs)
+
+                    # Map back to original coordinates
+                    for bc in block_biclusters:
+                        mapped_bc = self._map_bicluster_to_original(
+                            bc, row_idx, col_idx, M, N, iteration, coords
+                        )
+                        iteration_biclusters.append(mapped_bc)
+
+                except Exception as e:
+                    self.logger.warning(
+                        f"Detection failed for block {coords} in iteration {iteration}: {e}"
+                    )
+                    continue
+
+            all_biclusters.extend(iteration_biclusters)
+            self.logger.info(
+                f"Iteration {iteration + 1}: {len(iteration_biclusters)} biclusters"
+            )
+
+        # Step 4: Aggregate and deduplicate
+        final_biclusters = self._aggregate_biclusters(all_biclusters, M, N)
+
+        self.logger.info(f"Final: {len(final_biclusters)} unique biclusters")
+        return final_biclusters
+
+    def _map_bicluster_to_original(
+        self,
+        bicluster: Bicluster,
+        original_row_indices: np.ndarray,
+        original_col_indices: np.ndarray,
+        M: int,
+        N: int,
+        iteration: int,
+        block_coords: Tuple[int, int],
+    ) -> Bicluster:
+        """
+        Map bicluster from block coordinates to original matrix coordinates.
+
+        Args:
+            bicluster: Bicluster detected in a block
+            original_row_indices: Original row indices for this block
+            original_col_indices: Original column indices for this block
+            M, N: Original matrix dimensions
+            iteration: Partition iteration number
+            block_coords: (block_i, block_j) coordinates
+
+        Returns:
+            Bicluster with indices mapped to original matrix
+        """
+        # Create full-sized boolean arrays
+        mapped_row_indices = np.zeros(M, dtype=bool)
+        mapped_col_indices = np.zeros(N, dtype=bool)
+
+        # Get selected indices within the block
+        block_row_selection = bicluster.row_labels
+        block_col_selection = bicluster.col_labels
+
+        # Map to original indices
+        selected_original_rows = original_row_indices[block_row_selection]
+        selected_original_cols = original_col_indices[block_col_selection]
+
+        mapped_row_indices[selected_original_rows] = True
+        mapped_col_indices[selected_original_cols] = True
+
+        # Create new bicluster with metadata
+        metadata = bicluster.metadata.copy() if bicluster.metadata else {}
+        metadata.update(
+            {
+                "partition_iteration": iteration,
+                "block_coords": block_coords,
+                "detection_method": "partitioned_svd",
+            }
+        )
+
+        return Bicluster(
+            row_indices=mapped_row_indices,
+            col_indices=mapped_col_indices,
+            score=bicluster.score,
+            metadata=metadata,
+        )
+
+    def _aggregate_biclusters(
+        self, biclusters: List[Bicluster], M: int, N: int
+    ) -> List[Bicluster]:
+        """
+        Aggregate biclusters from all partitions, removing duplicates.
+
+        Uses Jaccard index to identify similar biclusters and keeps
+        the one with the best score.
+
+        Args:
+            biclusters: All biclusters from all iterations
+            M, N: Original matrix dimensions
+
+        Returns:
+            Deduplicated list of biclusters
+        """
+        if not biclusters:
+            return []
+
+        # Sort by score (lower is better)
+        sorted_biclusters = sorted(
+            biclusters, key=lambda bc: bc.score if bc.score is not None else float("inf")
+        )
+
+        merged: List[Bicluster] = []
+        processed_ids = set()
+
+        for bc in sorted_biclusters:
+            if bc.id in processed_ids:
+                continue
+
+            # Find similar biclusters
+            similar = [bc]
+            for other in sorted_biclusters:
+                if other.id == bc.id or other.id in processed_ids:
+                    continue
+
+                try:
+                    jaccard = bc.jaccard_index(other)
+                    if jaccard > self.partition_config.merge_threshold:
+                        similar.append(other)
+                        processed_ids.add(other.id)
+                except ValueError:
+                    # Incompatible dimensions, skip
+                    continue
+
+            # Keep the best one or merge if multiple similar
+            if len(similar) == 1:
+                merged.append(bc)
+            else:
+                # Merge similar biclusters (simple union strategy)
+                merged_bc = self._merge_similar_biclusters(similar)
+                merged.append(merged_bc)
+
+            processed_ids.add(bc.id)
+
+        return merged
+
+    def _merge_similar_biclusters(self, biclusters: List[Bicluster]) -> Bicluster:
+        """
+        Merge similar biclusters into one.
+
+        Uses union of indices and weighted average of scores.
+
+        Args:
+            biclusters: List of similar biclusters to merge
+
+        Returns:
+            Merged bicluster
+        """
+        # Union of indices
+        row_union = biclusters[0].row_indices.copy()
+        col_union = biclusters[0].col_indices.copy()
+
+        for bc in biclusters[1:]:
+            row_union |= bc.row_indices
+            col_union |= bc.col_indices
+
+        # Weighted average score (by size)
+        total_weight = 0
+        weighted_score = 0.0
+
+        for bc in biclusters:
+            weight = bc.size
+            if bc.score is not None and not np.isnan(bc.score) and not np.isinf(bc.score):
+                weighted_score += weight * bc.score
+                total_weight += weight
+
+        avg_score = weighted_score / total_weight if total_weight > 0 else float("inf")
+
+        # Collect provenance metadata
+        metadata = {
+            "merged_from_count": len(biclusters),
+            "source_iterations": list(
+                set(
+                    bc.metadata.get("partition_iteration", -1)
+                    for bc in biclusters
+                    if bc.metadata
+                )
+            ),
+            "source_blocks": [
+                bc.metadata.get("block_coords", (-1, -1))
+                for bc in biclusters
+                if bc.metadata
+            ],
+        }
+
+        return Bicluster(
+            row_indices=row_union,
+            col_indices=col_union,
+            score=avg_score,
+            metadata=metadata,
+        )

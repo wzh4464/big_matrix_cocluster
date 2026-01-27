@@ -30,6 +30,8 @@ class ScoringMethod(Enum):
     PEARSON = "pearson"
     EXPONENTIAL = "exponential"
     COMPATIBILITY = "compatibility"
+    SVR = "svr"  # Singular Value Ratio: s(A) = s₁/s₂
+    SVR_NORMALIZED = "svr_normalized"  # Normalized SVR: S(A) = s(A)/||A||_F
 
 
 class ClusteringMethod(Enum):
@@ -181,6 +183,103 @@ class BiclusterAnalyzer:
                 "original_scores": [bc.score for bc in biclusters_to_merge],
             },
         )
+
+    @classmethod
+    def create_partitioned_analyzer(
+        cls,
+        base_config: Optional[BiclusterConfig] = None,
+        partition_config: Optional["PartitionConfig"] = None,
+    ) -> BiclusterAnalyzer:
+        """
+        Create analyzer with probabilistic matrix partitioning.
+
+        Factory method for creating an analyzer that uses partitioned detection
+        strategy from the DiMergeCo paper.
+
+        Args:
+            base_config: Configuration for base bicluster detection
+            partition_config: Configuration for partitioning strategy
+
+        Returns:
+            BiclusterAnalyzer with partitioned detector
+
+        Example:
+            >>> from big_matrix_cocluster import BiclusterAnalyzer, PartitionConfig
+            >>> partition_cfg = PartitionConfig(T_m=30, T_n=30, T_p=5)
+            >>> analyzer = BiclusterAnalyzer.create_partitioned_analyzer(
+            ...     partition_config=partition_cfg
+            ... )
+        """
+        from .detection import PartitionedBiclusterDetector
+
+        base_config = base_config or BiclusterConfig()
+
+        analyzer = cls(base_config)
+        analyzer.detector = PartitionedBiclusterDetector(base_config, partition_config)
+
+        return analyzer
+
+    def hierarchical_merge(
+        self,
+        n_partitions: int = 8,
+        merge_config: Optional["HierarchicalMergeConfig"] = None,
+        matrix_shape: Optional[Tuple[int, int]] = None,
+    ) -> List[Bicluster]:
+        """
+        Apply hierarchical merging to detected biclusters.
+
+        Uses O(log n) binary tree merging strategy to efficiently
+        aggregate biclusters while removing duplicates and filtering
+        by quality.
+
+        Args:
+            n_partitions: Number of partitions to simulate
+            merge_config: Hierarchical merge configuration
+            matrix_shape: Shape of original matrix (required for spatial index)
+
+        Returns:
+            Merged and filtered bicluster list
+
+        Example:
+            >>> analyzer.fit(matrix)
+            >>> merged = analyzer.hierarchical_merge(n_partitions=8)
+        """
+        from .hierarchical_merge import HierarchicalMerger, HierarchicalMergeConfig
+
+        if self.results is None:
+            raise ValueError("Analyzer has not been fitted yet. Call fit() first.")
+
+        if matrix_shape is None:
+            # Try to get from stored matrix or results
+            if hasattr(self, "matrix") and self.matrix is not None:
+                matrix_shape = self.matrix.shape
+            else:
+                # Infer from bicluster dimensions
+                if self.results:
+                    max_row = max(len(bc.row_indices) for bc in self.results)
+                    max_col = max(len(bc.col_indices) for bc in self.results)
+                    matrix_shape = (max_row, max_col)
+                else:
+                    raise ValueError("Cannot infer matrix shape from empty results")
+
+        # Initialize merger
+        merger = HierarchicalMerger(merge_config or HierarchicalMergeConfig())
+
+        # Simulate partitions (in practice, these would come from actual partitioning)
+        partition_size = max(1, len(self.results) // n_partitions)
+        partition_biclusters = [
+            self.results[i : i + partition_size]
+            for i in range(0, len(self.results), partition_size)
+        ]
+
+        # Execute hierarchical merge
+        merged = merger.merge_partitions(partition_biclusters, matrix_shape)
+
+        self.logger.info(
+            f"Hierarchical merge: {len(self.results)} → {len(merged)} biclusters"
+        )
+
+        return merged
 
     def save_results(self, filepath: Union[str, Path]) -> None:
         """Save analysis results to file."""
