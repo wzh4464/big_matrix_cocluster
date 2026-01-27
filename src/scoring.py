@@ -171,3 +171,195 @@ class CompatibilityScorer(ScoringStrategy):
         mean_similarity_per_item = sum_similarity / (length - 1)
         scores = 1.0 - mean_similarity_per_item
         return scores.astype(np.float64)
+
+
+class SVRScorer(ScoringStrategy):
+    """
+    Singular Value Ratio (SVR) scoring implementation.
+
+    Implements the SVR scoring method from the DiMergeCo paper:
+    - s(A) = s₁/s₂  (basic SVR score)
+    - S(A) = s(A)/||A||_F  (normalized SVR score)
+
+    where s₁, s₂ are the largest and second-largest singular values,
+    and ||A||_F is the Frobenius norm.
+
+    Returns negative scores to maintain code convention (lower is better).
+    Higher quality biclusters have more negative scores.
+    """
+
+    def __init__(
+        self,
+        normalized: bool = True,  # True: S(A), False: s(A)
+        epsilon: float = 1e-10,   # Prevent division by zero
+        min_singular_values: int = 2,
+        cache_svd: bool = True,
+    ):
+        """
+        Initialize SVR scorer.
+
+        Args:
+            normalized: If True, use normalized SVR S(A) = s(A)/||A||_F
+                       If False, use basic SVR s(A) = s₁/s₂
+            epsilon: Small constant to prevent division by zero
+            min_singular_values: Minimum number of singular values required
+            cache_svd: Whether to cache SVD computations
+        """
+        self.normalized = normalized
+        self.epsilon = epsilon
+        self.min_singular_values = min_singular_values
+        self.cache_svd = cache_svd
+        self.svd_cache = {}
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def score(self, matrix: Matrix, bicluster: Bicluster) -> float:
+        """
+        Calculate SVR score for a bicluster.
+
+        Strictly follows paper formulas:
+        - s(A) = s₁/s₂
+        - S(A) = s(A) / ||A||_F
+
+        Returns negative score to follow code convention (lower is better).
+
+        Args:
+            matrix: Full data matrix
+            bicluster: Bicluster to score
+
+        Returns:
+            -S(A) or -s(A), making better biclusters have lower (more negative) scores.
+            float('inf') for invalid biclusters.
+        """
+        bicluster_id = bicluster.id
+
+        try:
+            # 1. Extract submatrix
+            submatrix = bicluster.extract_submatrix(matrix)
+
+            # 2. Boundary checks
+            if submatrix.size == 0:
+                self.logger.debug(
+                    f"Bicluster {bicluster_id} results in empty submatrix. Score is inf."
+                )
+                return float("inf")
+
+            if submatrix.shape[0] < 2 or submatrix.shape[1] < 2:
+                self.logger.debug(
+                    f"Bicluster {bicluster_id} submatrix too small ({submatrix.shape}). Score is inf."
+                )
+                return float("inf")
+
+            # 3. Compute SVD and get singular values
+            singular_values = self._compute_singular_values(submatrix)
+
+            if len(singular_values) < self.min_singular_values:
+                self.logger.debug(
+                    f"Bicluster {bicluster_id} has insufficient singular values "
+                    f"({len(singular_values)} < {self.min_singular_values}). Score is inf."
+                )
+                return float("inf")
+
+            # 4. Calculate s(A) = s₁/s₂
+            s1 = singular_values[0]
+            s2 = singular_values[1]
+
+            # Handle rank-1 matrices (s₂ ≈ 0) - perfect biclusters
+            if s2 < self.epsilon:
+                self.logger.debug(
+                    f"Bicluster {bicluster_id} is near rank-1 (s₂={s2:.2e}). "
+                    f"Returning highly negative score."
+                )
+                return -1e10
+
+            svr_score = s1 / max(s2, self.epsilon)
+
+            # 5. Normalize if requested
+            if self.normalized:
+                frobenius_norm = np.linalg.norm(submatrix, 'fro')
+                if frobenius_norm < self.epsilon:
+                    self.logger.debug(
+                        f"Bicluster {bicluster_id} has near-zero Frobenius norm. Score is inf."
+                    )
+                    return float("inf")
+                svr_score = svr_score / frobenius_norm
+
+            # 6. Return negative value (lower is better in codebase convention)
+            return -svr_score
+
+        except ValueError as ve:
+            self.logger.warning(
+                f"ValueError for bicluster {bicluster_id}: {ve}. Returning inf score."
+            )
+            return float("inf")
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error for bicluster {bicluster_id}: {e}",
+                exc_info=True,
+            )
+            return float("inf")
+
+    def _compute_singular_values(self, submatrix: Matrix) -> np.ndarray:
+        """
+        Compute singular values using full SVD, with optional caching.
+
+        Args:
+            submatrix: Matrix to decompose
+
+        Returns:
+            Array of singular values in descending order
+        """
+        if self.cache_svd:
+            cache_key = self._matrix_hash(submatrix)
+            if cache_key in self.svd_cache:
+                return self.svd_cache[cache_key]
+
+        # Use full SVD for small matrices (more accurate)
+        try:
+            _, s, _ = np.linalg.svd(submatrix, full_matrices=False)
+        except np.linalg.LinAlgError as e:
+            self.logger.warning(f"SVD failed: {e}. Trying with alternate method.")
+            # Fallback: compute via eigenvalues of A^T A
+            try:
+                # For numerical stability, use SVD on smaller dimension
+                if submatrix.shape[0] < submatrix.shape[1]:
+                    gram = submatrix @ submatrix.T
+                else:
+                    gram = submatrix.T @ submatrix
+                eigenvalues = np.linalg.eigvalsh(gram)
+                # Eigenvalues of A^T A are squares of singular values
+                s = np.sqrt(np.maximum(eigenvalues, 0))[::-1]  # Descending order
+            except Exception as e2:
+                self.logger.error(f"Fallback SVD also failed: {e2}")
+                return np.array([])
+
+        if self.cache_svd and len(s) > 0:
+            cache_key = self._matrix_hash(submatrix)
+            self.svd_cache[cache_key] = s
+
+        return s
+
+    def _matrix_hash(self, matrix: Matrix) -> str:
+        """
+        Generate a hash key for matrix caching.
+
+        Args:
+            matrix: Matrix to hash
+
+        Returns:
+            Hash string for cache key
+        """
+        import hashlib
+        # Use shape and a sample of values for efficiency
+        shape_str = f"{matrix.shape[0]}x{matrix.shape[1]}"
+
+        # Sample strategy: corners and center
+        sample_values = []
+        if matrix.size > 0:
+            sample_values.extend(matrix.flat[:min(10, matrix.size)].tolist())
+            if matrix.size > 10:
+                mid = matrix.size // 2
+                sample_values.extend(matrix.flat[mid:mid+5].tolist())
+
+        # Create hash from shape and samples
+        content = f"{shape_str}_{sample_values}"
+        return hashlib.md5(content.encode()).hexdigest()
