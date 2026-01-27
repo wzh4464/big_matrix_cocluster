@@ -7,3 +7,14 @@
 uv.lock
 .coverage
 lcov.info
+
+# Experiment results
+experiment/*_results/
+experiment/*.log
+
+# Biclustering results
+biclustering_results/
+
+# Claude and Serena
+.claude/
+.serena/

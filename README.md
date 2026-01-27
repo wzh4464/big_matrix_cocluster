@@ -39,6 +39,7 @@ This framework combines advanced SVD-based algorithms with modern Python archite
 - **Efficient Processing**: Optimized algorithms with intelligent caching
 - **Large Matrix Support**: Handles matrices up to 10,000 × 10,000 elements
 - **Parallel Processing**: Multi-core utilization for computational intensive tasks
+- **DiMergeCo Framework**: Scalable co-clustering for large-scale datasets with probabilistic partitioning and hierarchical merging
 
 ## Installation
 
@@ -203,6 +204,67 @@ permuted_matrix, original_matrix, ground_truth_biclusters, generator = (
 ground_truth_info = generator.get_ground_truth_bicluster_info_dicts()
 permutation_indices = generator.get_permutation_indices()
 ```
+
+## DiMergeCo: Scalable Co-Clustering Framework
+
+### Overview
+
+DiMergeCo (Divide-Merge Co-clustering) is a scalable framework for large-scale biclustering that combines:
+
+1. **SVR Scoring**: Singular Value Ratio (s₁/s₂) for bicluster quality assessment
+2. **Probabilistic Partitioning**: Algorithm with theoretical detection guarantees
+3. **Hierarchical Merging**: O(log n) binary tree aggregation with spatial indexing
+
+### When to Use DiMergeCo
+
+DiMergeCo is specifically designed for **large-scale datasets** (>5,000 × 5,000). For smaller datasets (<1,000 × 1,000), standard biclustering provides better results.
+
+### Quick Example
+
+```python
+from big_matrix_cocluster import create_dimergeco_pipeline
+
+# Create DiMergeCo pipeline with paper-recommended parameters
+pipeline = create_dimergeco_pipeline(
+    k1=10, k2=10,
+    tolerance=0.05,
+    T_m=20, T_n=20,      # Minimum co-cluster size
+    T_p=5,                # Partition iterations
+    P_thresh=0.95,        # Detection probability
+    overlap_threshold=0.45,
+    output_directory="dimergeco_results"
+)
+
+# Load your large matrix
+pipeline.load_matrix(your_large_matrix)
+pipeline.fit()
+
+# Get results
+results = pipeline.get_results()
+print(results.summary())
+```
+
+### Paper Experiments Reproduction
+
+Reproduce the DiMergeCo paper experiments using synthetic data:
+
+```bash
+# Quick validation (10-20 seconds)
+python experiment/simple_test.py
+
+# Full experiments (1-2 hours)
+python experiment/reproduce_paper_experiments.py --experiment all
+```
+
+For detailed instructions, see `experiment/README.md`.
+
+### Expected Results
+
+| Dataset | Matrix Size | Method | Expected NMI | Expected ARI |
+|---------|------------|--------|--------------|--------------|
+| Small Test | 500×400 | Standard | >0.90 | >0.80 |
+| CLASSIC4-scale | 6,461×4,667 | DiMergeCo | 0.70-0.85 | 0.60-0.75 |
+| Large-scale | >10,000×10,000 | DiMergeCo | Paper quality | Paper quality |
 
 ## Algorithm Details
 
