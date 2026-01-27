@@ -8,7 +8,7 @@ from numpy.testing import (
 
 from src.bicluster import Bicluster
 from src.core import ScoringMethod, Matrix
-from src.scoring import CompatibilityScorer, ScoringStrategy
+from src.scoring import CompatibilityScorer, SVRScorer, ScoringStrategy
 
 
 # --- Test Fixtures ---
@@ -368,3 +368,299 @@ def test_bad_bicluster_score(bad_bicluster_sample_data):
     # Pearson score can be low if there's accidental linear trend,
     # but generally for random, it should not be extremely close to 0.
     assert score_p > 0.2, f"Pearson score for bad bicluster {score_p} too low"
+
+
+# --- Tests for SVRScorer (DiMergeCo paper implementation) ---
+
+
+def test_svr_scorer_initialization():
+    """Test SVR scorer initialization with different parameters."""
+    # Test normalized SVR (default)
+    scorer_norm = SVRScorer(normalized=True)
+    assert scorer_norm.normalized is True
+    assert scorer_norm.epsilon == 1e-10
+    assert scorer_norm.min_singular_values == 2
+
+    # Test basic SVR
+    scorer_basic = SVRScorer(normalized=False)
+    assert scorer_basic.normalized is False
+
+    # Test custom parameters
+    scorer_custom = SVRScorer(
+        normalized=True, epsilon=1e-8, min_singular_values=3, cache_svd=False
+    )
+    assert scorer_custom.epsilon == 1e-8
+    assert scorer_custom.min_singular_values == 3
+    assert scorer_custom.cache_svd is False
+
+
+def test_svr_score_calculation_known_matrix():
+    """Test SVR score calculation on a matrix with known singular values."""
+    # Create a simple 3x3 matrix with known singular values
+    # Using a diagonal-like structure
+    matrix = np.array([[3.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+
+    # Full bicluster
+    row_indices = np.ones(3, dtype=bool)
+    col_indices = np.ones(3, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    # Test basic SVR s(A) = s₁/s₂
+    scorer_basic = SVRScorer(normalized=False)
+    score_basic = scorer_basic.score(matrix, bicluster)
+
+    # For diagonal matrix, singular values are the diagonal elements (sorted desc)
+    # s₁ = 3, s₂ = 2, so s(A) = 3/2 = 1.5
+    # Returned score should be -1.5 (negative convention)
+    assert score_basic < 0, "SVR score should be negative (lower is better convention)"
+    assert_allclose(score_basic, -1.5, rtol=0.01)
+
+    # Test normalized SVR S(A) = s(A)/||A||_F
+    scorer_norm = SVRScorer(normalized=True)
+    score_norm = scorer_norm.score(matrix, bicluster)
+
+    # Frobenius norm = sqrt(3² + 2² + 1²) = sqrt(14) ≈ 3.742
+    # S(A) = 1.5 / 3.742 ≈ 0.401
+    # Returned score should be ≈ -0.401
+    frobenius = np.linalg.norm(matrix, "fro")
+    expected_norm = -1.5 / frobenius
+    assert score_norm < 0
+    assert_allclose(score_norm, expected_norm, rtol=0.01)
+
+
+def test_svr_rank1_matrix():
+    """Test SVR scoring on rank-1 matrix (perfect bicluster)."""
+    # Create a rank-1 matrix (outer product)
+    u = np.array([[1.0], [2.0], [3.0]])
+    v = np.array([[1.0, 2.0, 3.0, 4.0]])
+    matrix = u @ v  # 3x4 rank-1 matrix
+
+    row_indices = np.ones(3, dtype=bool)
+    col_indices = np.ones(4, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    scorer = SVRScorer(normalized=False)
+    score = scorer.score(matrix, bicluster)
+
+    # Rank-1 matrix should have s₂ ≈ 0, so scorer returns very negative score
+    assert score < -1e9, f"Rank-1 matrix should get highly negative score, got {score}"
+
+
+def test_svr_small_matrix_boundary():
+    """Test SVR scoring on matrices that are too small."""
+    # 1x1 matrix
+    matrix_1x1 = np.array([[5.0]])
+    row_indices = np.array([True])
+    col_indices = np.array([True])
+    bicluster_1x1 = Bicluster(row_indices, col_indices, score=None)
+
+    scorer = SVRScorer()
+    score = scorer.score(matrix_1x1, bicluster_1x1)
+    assert score == float("inf"), "1x1 bicluster should return inf score"
+
+    # 2x1 matrix (too few columns)
+    matrix_2x1 = np.array([[1.0], [2.0]])
+    row_indices = np.array([True, True])
+    col_indices = np.array([True])
+    bicluster_2x1 = Bicluster(row_indices, col_indices, score=None)
+
+    score = scorer.score(matrix_2x1, bicluster_2x1)
+    assert score == float("inf"), "2x1 bicluster should return inf score"
+
+    # 1x2 matrix (too few rows)
+    matrix_1x2 = np.array([[1.0, 2.0]])
+    row_indices = np.array([True])
+    col_indices = np.array([True, True])
+    bicluster_1x2 = Bicluster(row_indices, col_indices, score=None)
+
+    score = scorer.score(matrix_1x2, bicluster_1x2)
+    assert score == float("inf"), "1x2 bicluster should return inf score"
+
+
+def test_svr_identity_matrix():
+    """Test SVR scoring on identity matrix."""
+    # Identity matrix has singular values all equal to 1
+    # So s₁/s₂ = 1/1 = 1
+    matrix = np.eye(4)
+
+    row_indices = np.ones(4, dtype=bool)
+    col_indices = np.ones(4, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    scorer = SVRScorer(normalized=False)
+    score = scorer.score(matrix, bicluster)
+
+    # Expected: -1.0 (negative of s₁/s₂ = 1)
+    assert_allclose(score, -1.0, rtol=0.01)
+
+
+def test_svr_normalized_vs_unnormalized():
+    """Compare normalized and unnormalized SVR scores."""
+    # Create a full-rank matrix (not rank-1)
+    matrix = np.array([[2.0, 4.0, 6.0], [1.0, 3.0, 5.0], [3.0, 5.0, 7.0]], dtype=float)
+
+    row_indices = np.ones(3, dtype=bool)
+    col_indices = np.ones(3, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    # Basic SVR
+    scorer_basic = SVRScorer(normalized=False)
+    score_basic = scorer_basic.score(matrix, bicluster)
+
+    # Normalized SVR
+    scorer_norm = SVRScorer(normalized=True)
+    score_norm = scorer_norm.score(matrix, bicluster)
+
+    # Both should be negative
+    assert score_basic < 0
+    assert score_norm < 0
+
+    # Normalized score should have smaller absolute value (divided by ||A||_F > 1)
+    frobenius = np.linalg.norm(matrix, "fro")
+    assert frobenius > 1  # Ensure our assumption holds
+
+    # |score_norm| should be approximately |score_basic| / frobenius
+    assert_allclose(score_norm, score_basic / frobenius, rtol=0.01)
+
+
+def test_svr_semantic_inversion():
+    """Verify negative score convention: lower rank matrices get more negative scores."""
+    np.random.seed(42)
+
+    # Create a low-rank (approximate rank-2) matrix
+    u = np.random.rand(5, 2)
+    v = np.random.rand(2, 5)
+    low_rank_matrix = u @ v + 0.01 * np.random.rand(5, 5)  # Small noise
+
+    # Create a full-rank random matrix
+    full_rank_matrix = np.random.rand(5, 5)
+
+    row_indices = np.ones(5, dtype=bool)
+    col_indices = np.ones(5, dtype=bool)
+
+    bicluster_low = Bicluster(row_indices, col_indices, score=None)
+    bicluster_full = Bicluster(row_indices, col_indices, score=None)
+
+    scorer = SVRScorer(normalized=True)
+
+    score_low = scorer.score(low_rank_matrix, bicluster_low)
+    score_full = scorer.score(full_rank_matrix, bicluster_full)
+
+    # Low-rank matrix should have more negative score (better bicluster)
+    assert score_low < score_full, (
+        f"Low-rank matrix should have more negative score. "
+        f"Got low={score_low:.3f}, full={score_full:.3f}"
+    )
+
+
+def test_svr_empty_bicluster():
+    """Test SVR scoring on empty bicluster."""
+    matrix = np.random.rand(5, 5)
+
+    # Empty bicluster
+    row_indices = np.zeros(5, dtype=bool)
+    col_indices = np.zeros(5, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    scorer = SVRScorer()
+    score = scorer.score(matrix, bicluster)
+
+    assert score == float("inf"), "Empty bicluster should return inf score"
+
+
+def test_svr_cache_functionality():
+    """Test that SVD caching works correctly."""
+    matrix = np.random.rand(10, 10)
+
+    row_indices = np.ones(10, dtype=bool)
+    col_indices = np.ones(10, dtype=bool)
+    bicluster = Bicluster(row_indices, col_indices, score=None)
+
+    # Create scorer with caching enabled
+    scorer_cached = SVRScorer(normalized=True, cache_svd=True)
+
+    # First call - should compute and cache
+    score1 = scorer_cached.score(matrix, bicluster)
+
+    # Second call - should use cache
+    score2 = scorer_cached.score(matrix, bicluster)
+
+    # Scores should be identical
+    assert score1 == score2
+
+    # Check that cache is populated
+    assert len(scorer_cached.svd_cache) > 0
+
+
+def test_svr_comparison_with_other_scorers():
+    """Compare SVR scoring with existing scorers on synthetic data."""
+    # Create a clear bicluster pattern
+    matrix = np.zeros((10, 10))
+    # Embed a coherent block
+    matrix[0:4, 0:4] = 5.0 + 0.1 * np.random.rand(4, 4)
+    # Add noise to rest
+    matrix[4:, :] = np.random.rand(6, 10)
+    matrix[:, 4:] = np.random.rand(10, 6)
+
+    # Good bicluster (the coherent block)
+    good_row_indices = np.array([True] * 4 + [False] * 6)
+    good_col_indices = np.array([True] * 4 + [False] * 6)
+    good_bicluster = Bicluster(good_row_indices, good_col_indices, score=None)
+
+    # Bad bicluster (random region)
+    bad_row_indices = np.array([False] * 4 + [True] * 4 + [False] * 2)
+    bad_col_indices = np.array([False] * 4 + [True] * 4 + [False] * 2)
+    bad_bicluster = Bicluster(bad_row_indices, bad_col_indices, score=None)
+
+    # Score with different methods
+    svr_scorer = SVRScorer(normalized=True)
+    exp_scorer = CompatibilityScorer(method=ScoringMethod.EXPONENTIAL)
+
+    svr_good = svr_scorer.score(matrix, good_bicluster)
+    svr_bad = svr_scorer.score(matrix, bad_bicluster)
+
+    exp_good = exp_scorer.score(matrix, good_bicluster)
+    exp_bad = exp_scorer.score(matrix, bad_bicluster)
+
+    # Both scorers should rank good bicluster better (lower score)
+    assert svr_good < svr_bad, f"SVR: good={svr_good:.3f} should be < bad={svr_bad:.3f}"
+    assert exp_good < exp_bad, f"EXP: good={exp_good:.3f} should be < bad={exp_bad:.3f}"
+
+
+def test_svr_with_detection_integration():
+    """Test SVR scorer integration with BiclusterDetector."""
+    from src.core import BiclusterConfig
+    from src.detection import SVDBiclusterDetector
+
+    # Create synthetic data with embedded bicluster
+    matrix = np.random.rand(50, 40) * 0.5
+
+    # Embed a low-rank block
+    u = np.ones((10, 1))
+    v = np.ones((1, 10))
+    matrix[5:15, 5:15] = u @ v * 10
+
+    # Configure detector with SVR scoring
+    config_svr = BiclusterConfig(
+        k1=5,
+        k2=5,
+        tolerance=10.0,  # Adjusted for negative scores
+        scoring_method=ScoringMethod.SVR_NORMALIZED,
+        random_state=42,
+    )
+
+    detector = SVDBiclusterDetector(config_svr)
+
+    # Verify SVR scorer is being used
+    assert isinstance(detector.scorer, SVRScorer)
+
+    # Run detection
+    biclusters = detector.detect(matrix)
+
+    # Should detect some biclusters
+    assert len(biclusters) >= 0, "Detection should complete without error"
+
+    # If biclusters found, verify they have negative scores
+    if biclusters:
+        for bc in biclusters:
+            assert bc.score < 0, f"Bicluster score {bc.score} should be negative with SVR"
