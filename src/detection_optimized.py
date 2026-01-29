@@ -23,13 +23,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 import hashlib
 
-# Import from existing modules
-import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
-
-from bicluster import Bicluster
-from hierarchical_merge import BiclusterSpatialIndex
+# Import from existing modules (use relative imports)
+from .bicluster import Bicluster
+from .hierarchical_merge import BiclusterSpatialIndex
 
 
 @dataclass
