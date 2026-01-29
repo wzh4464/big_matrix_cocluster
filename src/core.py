@@ -189,6 +189,10 @@ class BiclusterAnalyzer:
         cls,
         base_config: Optional[BiclusterConfig] = None,
         partition_config: Optional["PartitionConfig"] = None,
+        use_optimized_aggregation: bool = True,
+        max_workers: int = 4,
+        parallelize_blocks: bool = True,
+        block_parallel_workers: int = 4,
     ) -> BiclusterAnalyzer:
         """
         Create analyzer with probabilistic matrix partitioning.
@@ -199,6 +203,10 @@ class BiclusterAnalyzer:
         Args:
             base_config: Configuration for base bicluster detection
             partition_config: Configuration for partitioning strategy
+            use_optimized_aggregation: Use optimized O(n log n) aggregation (default: True)
+            max_workers: Number of parallel workers for aggregation (default: 4)
+            parallelize_blocks: Parallelize block detection within iterations (default: True)
+            block_parallel_workers: Workers for block parallelization (default: 4)
 
         Returns:
             BiclusterAnalyzer with partitioned detector
@@ -207,7 +215,9 @@ class BiclusterAnalyzer:
             >>> from big_matrix_cocluster import BiclusterAnalyzer, PartitionConfig
             >>> partition_cfg = PartitionConfig(T_m=30, T_n=30, T_p=5)
             >>> analyzer = BiclusterAnalyzer.create_partitioned_analyzer(
-            ...     partition_config=partition_cfg
+            ...     partition_config=partition_cfg,
+            ...     parallelize_blocks=True,
+            ...     block_parallel_workers=8
             ... )
         """
         from .detection import PartitionedBiclusterDetector
@@ -215,7 +225,14 @@ class BiclusterAnalyzer:
         base_config = base_config or BiclusterConfig()
 
         analyzer = cls(base_config)
-        analyzer.detector = PartitionedBiclusterDetector(base_config, partition_config)
+        analyzer.detector = PartitionedBiclusterDetector(
+            base_config,
+            partition_config,
+            use_optimized_aggregation=use_optimized_aggregation,
+            max_workers=max_workers,
+            parallelize_blocks=parallelize_blocks,
+            block_parallel_workers=block_parallel_workers,
+        )
 
         return analyzer
 

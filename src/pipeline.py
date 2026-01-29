@@ -62,6 +62,11 @@ class PipelineConfig:
     use_partitioning: bool = False  # Use probabilistic partitioning
     use_hierarchical_merge: bool = False  # Use hierarchical merging
 
+    # Parallelization options (NEW)
+    max_workers: int = 4  # Workers for aggregation parallelization
+    parallelize_blocks: bool = True  # Parallelize block detection in partitioning
+    block_parallel_workers: int = 4  # Workers for block parallelization
+
     # Partition configuration (imported lazily to avoid circular deps)
     partition_config: Optional[Any] = None  # PartitionConfig
     hierarchical_merge_config: Optional[Any] = None  # HierarchicalMergeConfig
@@ -194,10 +199,19 @@ class BiclusteringPipeline:
             partition_config = PartitionConfig(random_state=self.config.random_state)
 
         analyzer = BiclusterAnalyzer.create_partitioned_analyzer(
-            base_config, partition_config
+            base_config,
+            partition_config,
+            use_optimized_aggregation=True,  # Always use optimized aggregation
+            max_workers=self.config.max_workers,
+            parallelize_blocks=self.config.parallelize_blocks,
+            block_parallel_workers=self.config.block_parallel_workers,
         )
 
-        self.logger.info("Initialized DiMergeCo pipeline with partitioned detection")
+        self.logger.info(
+            f"Initialized DiMergeCo pipeline with partitioned detection "
+            f"(block_parallel={self.config.parallelize_blocks}, "
+            f"workers={self.config.block_parallel_workers})"
+        )
         return analyzer
 
     def _configure_logging(self) -> logging.Logger:
@@ -690,6 +704,10 @@ def create_dimergeco_pipeline(
     # Hierarchical merging parameters
     overlap_threshold: float = 0.3,
     use_spatial_indexing: bool = True,
+    # Parallelization parameters (NEW)
+    max_workers: int = 4,
+    parallelize_blocks: bool = True,
+    block_parallel_workers: int = 4,
     # Output settings
     output_directory: str = "dimergeco_results",
     random_state: Optional[int] = 42,
@@ -702,6 +720,7 @@ def create_dimergeco_pipeline(
     - SVR scoring (normalized)
     - Probabilistic matrix partitioning with theoretical guarantees
     - Hierarchical merging with spatial indexing
+    - Parallel block detection and aggregation
 
     Args:
         k1, k2: SVD clustering parameters
@@ -711,6 +730,9 @@ def create_dimergeco_pipeline(
         P_thresh: Minimum detection probability guarantee (Theorem 2)
         overlap_threshold: Jaccard threshold for hierarchical merging
         use_spatial_indexing: Enable O(1) spatial index for overlap queries
+        max_workers: Workers for aggregation parallelization (default: 4)
+        parallelize_blocks: Parallelize block detection (default: True)
+        block_parallel_workers: Workers for block parallelization (default: 4)
         output_directory: Directory for results and visualizations
         random_state: Random seed for reproducibility
         **kwargs: Additional configuration parameters
@@ -722,6 +744,8 @@ def create_dimergeco_pipeline(
         >>> pipeline = create_dimergeco_pipeline(
         ...     k1=8, k2=8,
         ...     T_m=40, T_n=40, T_p=5, P_thresh=0.95,
+        ...     parallelize_blocks=True,
+        ...     block_parallel_workers=8,
         ...     output_directory="results"
         ... )
         >>> pipeline.generate_synthetic_data(n_biclusters=5, matrix_shape=(1000, 800))
@@ -742,6 +766,10 @@ def create_dimergeco_pipeline(
         svr_normalized=True,
         use_partitioning=True,
         use_hierarchical_merge=True,
+        # Parallelization settings (NEW)
+        max_workers=max_workers,
+        parallelize_blocks=parallelize_blocks,
+        block_parallel_workers=block_parallel_workers,
         # Partition configuration
         partition_config=PartitionConfig(
             T_m=T_m, T_n=T_n, T_p=T_p, P_thresh=P_thresh, random_state=random_state

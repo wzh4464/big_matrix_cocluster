@@ -404,6 +404,8 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         partition_config: Optional["PartitionConfig"] = None,
         use_optimized_aggregation: bool = True,  # NEW: Enable optimization by default
         max_workers: int = 4,  # NEW: Parallel workers
+        parallelize_blocks: bool = True,  # NEW: Parallelize block detection
+        block_parallel_workers: int = 4,  # NEW: Workers for block parallelization
     ):
         """
         Initialize partitioned detector.
@@ -413,6 +415,8 @@ class PartitionedBiclusterDetector(BiclusterDetector):
             partition_config: Configuration for partitioning strategy
             use_optimized_aggregation: Use optimized O(n log n) aggregation (default: True)
             max_workers: Number of parallel workers for aggregation (default: 4)
+            parallelize_blocks: Whether to parallelize block detection within each iteration (default: True)
+            block_parallel_workers: Number of workers for block parallelization (default: 4)
         """
         super().__init__(base_config)
 
@@ -423,11 +427,15 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         self.partitioner = MatrixPartitioner(self.partition_config)
         self.base_detector = SVDBiclusterDetector(base_config)
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+
         # NEW: Optimized aggregation settings
         self.use_optimized_aggregation = use_optimized_aggregation
         self.max_workers = max_workers
-        
+
+        # NEW: Block parallelization settings
+        self.parallelize_blocks = parallelize_blocks
+        self.block_parallel_workers = block_parallel_workers
+
         if use_optimized_aggregation:
             from .detection_optimized import create_optimized_aggregator
             self.optimized_aggregator = create_optimized_aggregator(
@@ -439,6 +447,11 @@ class PartitionedBiclusterDetector(BiclusterDetector):
             self.logger.info(
                 f"Using optimized aggregation: parallel={max_workers > 1}, "
                 f"workers={max_workers}"
+            )
+
+        if parallelize_blocks:
+            self.logger.info(
+                f"Block parallelization enabled: workers={block_parallel_workers}"
             )
 
     def detect(
@@ -487,25 +500,32 @@ class PartitionedBiclusterDetector(BiclusterDetector):
             blocks = self.partitioner.partition_matrix(matrix, iteration)
             iteration_biclusters = []
 
-            # Step 3: Detect independently on each block
-            for block_idx, (submatrix, slices, coords, row_idx, col_idx) in enumerate(
-                blocks
-            ):
-                try:
-                    block_biclusters = self.base_detector.detect(submatrix, **kwargs)
+            # Step 3: Detect independently on each block (parallel or sequential)
+            if self.parallelize_blocks and len(blocks) > 1:
+                # Parallel block detection
+                iteration_biclusters = self._detect_blocks_parallel(
+                    blocks, M, N, iteration, **kwargs
+                )
+            else:
+                # Sequential block detection
+                for block_idx, (submatrix, slices, coords, row_idx, col_idx) in enumerate(
+                    blocks
+                ):
+                    try:
+                        block_biclusters = self.base_detector.detect(submatrix, **kwargs)
 
-                    # Map back to original coordinates
-                    for bc in block_biclusters:
-                        mapped_bc = self._map_bicluster_to_original(
-                            bc, row_idx, col_idx, M, N, iteration, coords
+                        # Map back to original coordinates
+                        for bc in block_biclusters:
+                            mapped_bc = self._map_bicluster_to_original(
+                                bc, row_idx, col_idx, M, N, iteration, coords
+                            )
+                            iteration_biclusters.append(mapped_bc)
+
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Detection failed for block {coords} in iteration {iteration}: {e}"
                         )
-                        iteration_biclusters.append(mapped_bc)
-
-                except Exception as e:
-                    self.logger.warning(
-                        f"Detection failed for block {coords} in iteration {iteration}: {e}"
-                    )
-                    continue
+                        continue
 
             all_biclusters.extend(iteration_biclusters)
             self.logger.info(
@@ -517,6 +537,74 @@ class PartitionedBiclusterDetector(BiclusterDetector):
 
         self.logger.info(f"Final: {len(final_biclusters)} unique biclusters")
         return final_biclusters
+
+    def _detect_blocks_parallel(
+        self,
+        blocks: List,
+        M: int,
+        N: int,
+        iteration: int,
+        **kwargs
+    ) -> List[Bicluster]:
+        """
+        Detect biclusters in blocks in parallel using ThreadPoolExecutor.
+
+        Uses threads instead of processes to avoid pickling issues with detector objects.
+        NumPy/scikit-learn operations release the GIL, allowing effective parallelization.
+
+        Args:
+            blocks: List of (submatrix, slices, coords, row_idx, col_idx) tuples
+            M, N: Original matrix dimensions
+            iteration: Current partition iteration number
+            **kwargs: Additional arguments passed to base detector
+
+        Returns:
+            List of biclusters from all blocks (mapped to original coordinates)
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        iteration_biclusters = []
+
+        def process_block(block_data):
+            """Process a single block and return mapped biclusters."""
+            block_idx, (submatrix, slices, coords, row_idx, col_idx) = block_data
+            try:
+                block_biclusters = self.base_detector.detect(submatrix, **kwargs)
+
+                # Map back to original coordinates
+                mapped = []
+                for bc in block_biclusters:
+                    mapped_bc = self._map_bicluster_to_original(
+                        bc, row_idx, col_idx, M, N, iteration, coords
+                    )
+                    mapped.append(mapped_bc)
+
+                return mapped, None  # (biclusters, error)
+
+            except Exception as e:
+                return [], (coords, str(e))  # (empty list, error info)
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=self.block_parallel_workers) as executor:
+            # Submit all blocks
+            future_to_block = {
+                executor.submit(process_block, (idx, block)): idx
+                for idx, block in enumerate(blocks)
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_block):
+                biclusters, error = future.result()
+
+                if error:
+                    coords, err_msg = error
+                    self.logger.warning(
+                        f"Detection failed for block {coords} in iteration {iteration}: {err_msg}"
+                    )
+                else:
+                    iteration_biclusters.extend(biclusters)
+
+        return iteration_biclusters
 
     def _map_bicluster_to_original(
         self,

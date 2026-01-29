@@ -102,6 +102,18 @@ def run_classic4_experiment():
     output_dir = Path("classic4_results")
     output_dir.mkdir(exist_ok=True)
 
+    import os
+
+    # 自动检测 CPU 核心数
+    cpu_count = os.cpu_count() or 4
+    # 使用所有核心，但最多 8 个
+    optimal_workers = min(cpu_count, 8)
+
+    logger.info(f"    - 并行化设置：")
+    logger.info(f"      · CPU 核心数：{cpu_count}")
+    logger.info(f"      · Block 并行 workers：{optimal_workers}")
+    logger.info(f"      · 聚合并行 workers：{optimal_workers}")
+
     pipeline = create_dimergeco_pipeline(
         k1=10,
         k2=10,
@@ -112,6 +124,10 @@ def run_classic4_experiment():
         P_thresh=0.95,
         overlap_threshold=0.45,
         use_spatial_indexing=True,  # 层次化合并的空间索引
+        # 并行化设置（NEW）
+        parallelize_blocks=True,
+        block_parallel_workers=optimal_workers,
+        max_workers=optimal_workers,
         output_directory=str(output_dir),
         random_state=42
     )
