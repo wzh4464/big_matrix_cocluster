@@ -402,6 +402,8 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         self,
         base_config: BiclusterConfig,
         partition_config: Optional["PartitionConfig"] = None,
+        use_optimized_aggregation: bool = True,  # NEW: Enable optimization by default
+        max_workers: int = 4,  # NEW: Parallel workers
     ):
         """
         Initialize partitioned detector.
@@ -409,6 +411,8 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         Args:
             base_config: Configuration for base bicluster detection
             partition_config: Configuration for partitioning strategy
+            use_optimized_aggregation: Use optimized O(n log n) aggregation (default: True)
+            max_workers: Number of parallel workers for aggregation (default: 4)
         """
         super().__init__(base_config)
 
@@ -419,6 +423,23 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         self.partitioner = MatrixPartitioner(self.partition_config)
         self.base_detector = SVDBiclusterDetector(base_config)
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # NEW: Optimized aggregation settings
+        self.use_optimized_aggregation = use_optimized_aggregation
+        self.max_workers = max_workers
+        
+        if use_optimized_aggregation:
+            from .detection_optimized import create_optimized_aggregator
+            self.optimized_aggregator = create_optimized_aggregator(
+                merge_threshold=self.partition_config.merge_threshold,
+                use_parallel=(max_workers > 1),
+                max_workers=max_workers,
+                grid_size=20  # Higher granularity for better performance
+            )
+            self.logger.info(
+                f"Using optimized aggregation: parallel={max_workers > 1}, "
+                f"workers={max_workers}"
+            )
 
     def detect(
         self,
@@ -559,8 +580,8 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         """
         Aggregate biclusters from all partitions, removing duplicates.
 
-        Uses Jaccard index to identify similar biclusters and keeps
-        the one with the best score.
+        Uses optimized spatial indexing and parallel processing for O(n log n) performance.
+        Falls back to sequential processing if optimization is disabled.
 
         Args:
             biclusters: All biclusters from all iterations
@@ -572,6 +593,19 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         if not biclusters:
             return []
 
+        # Use optimized aggregation if enabled
+        if self.use_optimized_aggregation:
+            return self.optimized_aggregator.aggregate_biclusters(
+                biclusters,
+                matrix_shape=(M, N)
+            )
+
+        # Fallback to original O(n²) implementation
+        self.logger.warning(
+            "Using legacy O(n²) aggregation. Consider enabling "
+            "use_optimized_aggregation=True for better performance."
+        )
+        
         # Sort by score (lower is better)
         sorted_biclusters = sorted(
             biclusters, key=lambda bc: bc.score if bc.score is not None else float("inf")
