@@ -14,15 +14,21 @@ CLASSIC4 规模实验脚本
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# 添加项目根目录到 Python 路径
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
 
 import time
 import logging
 from pathlib import Path
 import numpy as np
 
-from visualization import create_synthetic_data_with_generator
-from pipeline import create_dimergeco_pipeline
+# 从包导入（确保正确的导入方式）
+from src import (
+    create_synthetic_data_with_generator,
+    create_dimergeco_pipeline,
+)
 from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 
 # 配置日志

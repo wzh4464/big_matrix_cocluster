@@ -2,17 +2,41 @@
 
 ## 快速开始
 
-### 1. 直接运行（前台）
+### 方法 1：使用便捷脚本（推荐）
 
 ```bash
 cd /path/to/big_matrix_cocluster
+
+# 直接运行
+./run_classic4.sh
+
+# 或后台运行
+nohup ./run_classic4.sh > classic4.log 2>&1 &
+```
+
+### 方法 2：设置 PYTHONPATH 后运行
+
+```bash
+cd /path/to/big_matrix_cocluster
+export PYTHONPATH=$(pwd):$PYTHONPATH
 python scripts/run_classic4_experiment.py
 ```
 
-### 2. 后台运行（推荐用于服务器）
+### 方法 3：使用 python -m 运行
 
 ```bash
-# 使用 nohup 在后台运行，输出重定向到日志文件
+cd /path/to/big_matrix_cocluster
+python -m scripts.run_classic4_experiment
+```
+
+### 后台运行（推荐用于服务器）
+
+```bash
+# 使用便捷脚本（最简单）
+nohup ./run_classic4.sh > classic4.log 2>&1 &
+
+# 或手动设置环境变量
+export PYTHONPATH=$(pwd):$PYTHONPATH
 nohup python scripts/run_classic4_experiment.py > classic4.log 2>&1 &
 
 # 查看进程
@@ -155,6 +179,35 @@ python -m json.tool classic4_results/experiment_summary.json
 ---
 
 ## 常见问题
+
+### Q0: ImportError: attempted relative import with no known parent package
+
+**症状**:
+```
+ImportError: attempted relative import with no known parent package
+```
+
+**解决方案**:
+
+**方法 1: 使用便捷脚本（推荐）**
+```bash
+cd /path/to/big_matrix_cocluster
+./run_classic4.sh
+```
+
+**方法 2: 手动设置 PYTHONPATH**
+```bash
+cd /path/to/big_matrix_cocluster
+export PYTHONPATH=$(pwd):$PYTHONPATH
+python scripts/run_classic4_experiment.py
+```
+
+**方法 3: 安装为包（开发模式）**
+```bash
+cd /path/to/big_matrix_cocluster
+pip install -e .
+python scripts/run_classic4_experiment.py
+```
 
 ### Q1: 内存不足
 
