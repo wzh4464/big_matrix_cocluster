@@ -52,7 +52,7 @@ class AggregationConfig:
 
     # Progress reporting
     report_progress: bool = True
-    progress_interval: int = 100  # Report every N biclusters
+    progress_interval: int = 1000  # Report every N biclusters (increased for large datasets)
 
 
 class OptimizedAggregator:
@@ -122,7 +122,25 @@ class OptimizedAggregator:
         # Step 3: Aggregate using spatial index or parallel processing
         self.logger.info("[3/4] Aggregating biclusters...")
 
-        if self.config.use_parallel and n > self.config.batch_size * 2:
+        # CRITICAL FIX: For large datasets (>10k biclusters), sequential with spatial index
+        # is MUCH faster than parallel. Parallel doesn't use spatial index and becomes O(n²).
+        # Example: 780k biclusters would take 169 hours in parallel vs ~30 minutes in sequential!
+        LARGE_DATASET_THRESHOLD = 10000
+
+        if n > LARGE_DATASET_THRESHOLD:
+            self.logger.warning(
+                f"  Large bicluster count ({n:,}), forcing sequential + spatial index mode"
+            )
+            self.logger.warning(
+                f"  (Parallel aggregation is O(n²) and would take days for this dataset)"
+            )
+            use_parallel = False
+        elif self.config.use_parallel and n > self.config.batch_size * 2:
+            use_parallel = True
+        else:
+            use_parallel = False
+
+        if use_parallel:
             merged = self._aggregate_parallel(
                 sorted_biclusters,
                 spatial_index,
@@ -164,13 +182,24 @@ class OptimizedAggregator:
 
         n = len(sorted_biclusters)
 
+        # Adaptive progress interval for large datasets
+        if n > 100000:
+            progress_interval = 10000
+        elif n > 10000:
+            progress_interval = 1000
+        else:
+            progress_interval = self.config.progress_interval
+
+        self.logger.info(f"  Sequential aggregation: {n:,} biclusters")
+
         for idx, bc in enumerate(sorted_biclusters):
             if bc.id in processed_ids:
                 continue
 
             # Progress reporting
-            if self.config.report_progress and idx % self.config.progress_interval == 0:
-                self.logger.debug(f"  Processing bicluster {idx}/{n} ({len(merged)} merged so far)")
+            if self.config.report_progress and idx % progress_interval == 0:
+                progress_pct = 100 * idx / n
+                self.logger.info(f"  Progress: {idx:,}/{n:,} ({progress_pct:.1f}%), {len(merged):,} merged so far")
 
             # Find similar biclusters using spatial index
             if spatial_index is not None:

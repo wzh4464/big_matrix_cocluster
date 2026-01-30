@@ -117,7 +117,7 @@ def run_classic4_experiment():
     pipeline = create_dimergeco_pipeline(
         k1=10,
         k2=10,
-        tolerance=0.05,
+        tolerance=0.02,  # 降低到 0.02（更严格，减少低质量 biclusters）
         T_m=20,
         T_n=20,
         T_p=5,
