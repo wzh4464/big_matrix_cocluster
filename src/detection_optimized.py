@@ -34,7 +34,7 @@ class AggregationConfig:
 
     # Spatial indexing
     use_spatial_index: bool = True
-    grid_size: int = 20  # Increased from 10 for better granularity
+    grid_size: int = 500  # High granularity for large bicluster counts
 
     # Parallel processing
     use_parallel: bool = True
