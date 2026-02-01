@@ -438,11 +438,12 @@ class PartitionedBiclusterDetector(BiclusterDetector):
 
         if use_optimized_aggregation:
             from .detection_optimized import create_optimized_aggregator
+
             self.optimized_aggregator = create_optimized_aggregator(
                 merge_threshold=self.partition_config.merge_threshold,
                 use_parallel=(max_workers > 1),
                 max_workers=max_workers,
-                grid_size=20  # Higher granularity for better performance
+                grid_size=500,  # High granularity for large bicluster counts
             )
             self.logger.info(
                 f"Using optimized aggregation: parallel={max_workers > 1}, "
@@ -508,11 +509,17 @@ class PartitionedBiclusterDetector(BiclusterDetector):
                 )
             else:
                 # Sequential block detection
-                for block_idx, (submatrix, slices, coords, row_idx, col_idx) in enumerate(
-                    blocks
-                ):
+                for block_idx, (
+                    submatrix,
+                    slices,
+                    coords,
+                    row_idx,
+                    col_idx,
+                ) in enumerate(blocks):
                     try:
-                        block_biclusters = self.base_detector.detect(submatrix, **kwargs)
+                        block_biclusters = self.base_detector.detect(
+                            submatrix, **kwargs
+                        )
 
                         # Map back to original coordinates
                         for bc in block_biclusters:
@@ -539,12 +546,7 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         return final_biclusters
 
     def _detect_blocks_parallel(
-        self,
-        blocks: List,
-        M: int,
-        N: int,
-        iteration: int,
-        **kwargs
+        self, blocks: List, M: int, N: int, iteration: int, **kwargs
     ) -> List[Bicluster]:
         """
         Detect biclusters in blocks in parallel using ThreadPoolExecutor.
@@ -684,8 +686,7 @@ class PartitionedBiclusterDetector(BiclusterDetector):
         # Use optimized aggregation if enabled
         if self.use_optimized_aggregation:
             return self.optimized_aggregator.aggregate_biclusters(
-                biclusters,
-                matrix_shape=(M, N)
+                biclusters, matrix_shape=(M, N)
             )
 
         # Fallback to original O(n²) implementation
@@ -693,10 +694,11 @@ class PartitionedBiclusterDetector(BiclusterDetector):
             "Using legacy O(n²) aggregation. Consider enabling "
             "use_optimized_aggregation=True for better performance."
         )
-        
+
         # Sort by score (lower is better)
         sorted_biclusters = sorted(
-            biclusters, key=lambda bc: bc.score if bc.score is not None else float("inf")
+            biclusters,
+            key=lambda bc: bc.score if bc.score is not None else float("inf"),
         )
 
         merged: List[Bicluster] = []
@@ -759,7 +761,11 @@ class PartitionedBiclusterDetector(BiclusterDetector):
 
         for bc in biclusters:
             weight = bc.size
-            if bc.score is not None and not np.isnan(bc.score) and not np.isinf(bc.score):
+            if (
+                bc.score is not None
+                and not np.isnan(bc.score)
+                and not np.isinf(bc.score)
+            ):
                 weighted_score += weight * bc.score
                 total_weight += weight
 

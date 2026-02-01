@@ -58,10 +58,10 @@ From actual CLASSIC4 run logs:
 Instead of comparing every bicluster pair:
 
 ```python
-# Build 20×20 spatial grid
-spatial_index = BiclusterSpatialIndex(matrix_shape, grid_size=20)
+# Build 500×500 spatial grid
+spatial_index = BiclusterSpatialIndex(matrix_shape, grid_size=500)
 for bc in biclusters:
-    spatial_index.insert(bc)  # O(grid_size²) per bicluster
+    spatial_index.insert(bc)  # O(cells_per_bicluster) per bicluster
 
 # Query only nearby candidates
 for bc in biclusters:
@@ -69,21 +69,31 @@ for bc in biclusters:
     # Only compare with k candidates instead of n biclusters
 ```
 
-**Improvement**: O(n²) → O(n × k) where k ≈ 50-200 (vs n=6000)
+**Improvement**: O(n²) → O(n × k) where k ≈ 3-50 (vs n=780,000)
 
-#### 2. Parallel Jaccard Computation
+#### 2. Two-Phase Parallel Aggregation (ThreadPoolExecutor)
+
+Uses `ThreadPoolExecutor` to share the spatial index across threads. NumPy boolean
+operations (used in Jaccard computation) release the GIL, enabling true parallelism.
 
 ```python
-# Split into batches
-batches = split_into_batches(biclusters, batch_size=50)
+# Phase 1: Build overlap graph in parallel
+with ThreadPoolExecutor(max_workers=4) as executor:
+    futures = [
+        executor.submit(_batch_query_overlapping, batch, spatial_index, threshold)
+        for batch in batches
+    ]
+    overlap_graph = {}
+    for future in as_completed(futures):
+        overlap_graph.update(future.result())
 
-# Process in parallel
-with ProcessPoolExecutor(max_workers=4) as executor:
-    futures = [executor.submit(find_similar, batch) for batch in batches]
-    results = [f.result() for f in futures]
+# Phase 2: Sequential greedy merge (fast, no Jaccard recomputation)
+for bc in sorted_biclusters:
+    neighbors = overlap_graph.get(bc.id, set())
+    # merge neighbors...
 ```
 
-**Improvement**: 4x speedup with 4 cores (linear scaling)
+**Improvement**: Near-linear speedup with thread count (numpy releases GIL)
 
 #### 3. Jaccard Caching
 
@@ -107,11 +117,11 @@ def get_cached_jaccard(bc1, bc2):
 
 | Optimization | Reduction Factor |
 |--------------|-----------------|
-| Spatial Index | 10-30x (n²/k → n×k) |
-| Parallelization | 4x (with 4 workers) |
+| Spatial Index (500×500) | 10-100x (n² → n×k, k very small) |
+| Thread Parallelization | ~4x (with 4 workers, numpy releases GIL) |
 | Caching | 1.5-2x (30-50% hits) |
-| **Total** | **60-240x theoretical** |
-| **Observed** | **10-24x actual** |
+| **Total** | **60-800x theoretical** |
+| **Observed** | **10-24x+ actual** |
 
 Actual is lower due to overhead, but still massive improvement.
 
@@ -195,7 +205,7 @@ from big_matrix_cocluster.detection_optimized import (
 # Custom aggregation config
 config = AggregationConfig(
     use_spatial_index=True,
-    grid_size=30,  # Increase for very large matrices (>10K×10K)
+    grid_size=500,  # High granularity for large bicluster counts
     use_parallel=True,
     max_workers=8,
     batch_size=100,  # Larger batches for more biclusters
@@ -316,7 +326,7 @@ Where:
 - n = number of biclusters (6,000)
 - k = average candidates per bicluster (50-200)
 - M, N = matrix dimensions (6461, 4667)
-- grid = spatial grid size (20)
+- grid = spatial grid size (500)
 
 ### Memory Usage
 
@@ -360,8 +370,8 @@ A: Yes. Enable logging:
 import logging
 logging.basicConfig(level=logging.INFO)
 # You'll see messages like:
-# "Built spatial index: 20×20 grid, 6039 insertions"
-# "Using parallel aggregation with 4 workers"
+# "Built spatial index: 500×500 grid, 780550 insertions"
+# "Phase 1: Building overlap graph with 4 threads (780,550 biclusters, batch_size=500)"
 # "Cache stats: 8234 hits, 2451 misses (77.0% hit rate)"
 ```
 

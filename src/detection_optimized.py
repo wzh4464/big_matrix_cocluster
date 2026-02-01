@@ -4,7 +4,7 @@ Optimized bicluster aggregation and merging functions.
 This module provides performance-optimized versions of aggregation methods
 that significantly reduce merge time from O(n²) to O(n log n) using:
 1. Spatial indexing to reduce comparison candidates
-2. Parallel Jaccard computation using multiprocessing
+2. Two-phase parallel aggregation (ThreadPoolExecutor + spatial index)
 3. Jaccard result caching to avoid redundant calculations
 4. Early termination heuristics
 
@@ -19,9 +19,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import lru_cache
-import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # Import from existing modules (use relative imports)
 from .bicluster import Bicluster
@@ -50,9 +49,16 @@ class AggregationConfig:
     early_termination: bool = True  # Skip if size difference > 50%
     size_diff_threshold: float = 0.5  # Early termination threshold
 
+    # Parallel overlap graph construction
+    parallel_batch_size: int = (
+        500  # Biclusters per batch for threaded overlap graph construction
+    )
+
     # Progress reporting
     report_progress: bool = True
-    progress_interval: int = 1000  # Report every N biclusters (increased for large datasets)
+    progress_interval: int = (
+        1000  # Report every N biclusters (increased for large datasets)
+    )
 
 
 class OptimizedAggregator:
@@ -72,9 +78,7 @@ class OptimizedAggregator:
         self._cache_misses = 0
 
     def aggregate_biclusters(
-        self,
-        biclusters: List[Bicluster],
-        matrix_shape: Tuple[int, int]
+        self, biclusters: List[Bicluster], matrix_shape: Tuple[int, int]
     ) -> List[Bicluster]:
         """
         Aggregate biclusters with optimized spatial indexing and parallelization.
@@ -95,7 +99,9 @@ class OptimizedAggregator:
             return []
 
         n = len(biclusters)
-        self.logger.info(f"Optimized aggregation: {n} biclusters, matrix {matrix_shape}")
+        self.logger.info(
+            f"Optimized aggregation: {n} biclusters, matrix {matrix_shape}"
+        )
 
         # Step 1: Build spatial index
         self.logger.info("[1/4] Building spatial index...")
@@ -104,65 +110,53 @@ class OptimizedAggregator:
         spatial_index = None
         if self.config.use_spatial_index:
             spatial_index = BiclusterSpatialIndex(
-                matrix_shape,
-                grid_size=self.config.grid_size
+                matrix_shape, grid_size=self.config.grid_size
             )
             for bc in biclusters:
                 spatial_index.insert(bc)
-            self.logger.info(f"  Built spatial index: {self.config.grid_size}×{self.config.grid_size} grid, "
-                           f"{spatial_index.size()} insertions")
+            self.logger.info(
+                f"  Built spatial index: {self.config.grid_size}×{self.config.grid_size} grid, "
+                f"{spatial_index.size()} insertions"
+            )
 
         # Step 2: Sort by score for greedy merging
         self.logger.info("[2/4] Sorting biclusters...")
         sorted_biclusters = sorted(
             biclusters,
-            key=lambda bc: bc.score if bc.score is not None else float('inf')
+            key=lambda bc: bc.score if bc.score is not None else float("inf"),
         )
 
         # Step 3: Aggregate using spatial index or parallel processing
         self.logger.info("[3/4] Aggregating biclusters...")
 
-        # CRITICAL FIX: For large datasets (>10k biclusters), sequential with spatial index
-        # is MUCH faster than parallel. Parallel doesn't use spatial index and becomes O(n²).
-        # Example: 780k biclusters would take 169 hours in parallel vs ~30 minutes in sequential!
-        LARGE_DATASET_THRESHOLD = 10000
-
-        if n > LARGE_DATASET_THRESHOLD:
-            self.logger.warning(
-                f"  Large bicluster count ({n:,}), forcing sequential + spatial index mode"
-            )
-            self.logger.warning(
-                f"  (Parallel aggregation is O(n²) and would take days for this dataset)"
-            )
-            use_parallel = False
-        elif self.config.use_parallel and n > self.config.batch_size * 2:
+        if self.config.use_parallel and n > self.config.parallel_batch_size * 2:
             use_parallel = True
         else:
             use_parallel = False
 
         if use_parallel:
             merged = self._aggregate_parallel(
-                sorted_biclusters,
-                spatial_index,
-                matrix_shape
+                sorted_biclusters, spatial_index, matrix_shape
             )
         else:
             merged = self._aggregate_sequential(
-                sorted_biclusters,
-                spatial_index,
-                matrix_shape
+                sorted_biclusters, spatial_index, matrix_shape
             )
 
         elapsed = self._now() - start_time
-        self.logger.info(f"[4/4] Aggregation complete: {len(merged)} unique biclusters "
-                        f"(from {n}), {elapsed:.2f}s")
+        self.logger.info(
+            f"[4/4] Aggregation complete: {len(merged)} unique biclusters "
+            f"(from {n}), {elapsed:.2f}s"
+        )
 
         # Report cache statistics
         if self.config.use_cache:
             total_queries = self._cache_hits + self._cache_misses
             hit_rate = self._cache_hits / total_queries if total_queries > 0 else 0
-            self.logger.info(f"  Cache stats: {self._cache_hits} hits, {self._cache_misses} misses "
-                           f"({hit_rate*100:.1f}% hit rate)")
+            self.logger.info(
+                f"  Cache stats: {self._cache_hits} hits, {self._cache_misses} misses "
+                f"({hit_rate*100:.1f}% hit rate)"
+            )
 
         return merged
 
@@ -170,7 +164,7 @@ class OptimizedAggregator:
         self,
         sorted_biclusters: List[Bicluster],
         spatial_index: Optional[BiclusterSpatialIndex],
-        matrix_shape: Tuple[int, int]
+        matrix_shape: Tuple[int, int],
     ) -> List[Bicluster]:
         """
         Sequential aggregation with spatial indexing.
@@ -199,11 +193,15 @@ class OptimizedAggregator:
             # Progress reporting
             if self.config.report_progress and idx % progress_interval == 0:
                 progress_pct = 100 * idx / n
-                self.logger.info(f"  Progress: {idx:,}/{n:,} ({progress_pct:.1f}%), {len(merged):,} merged so far")
+                self.logger.info(
+                    f"  Progress: {idx:,}/{n:,} ({progress_pct:.1f}%), {len(merged):,} merged so far"
+                )
 
             # Find similar biclusters using spatial index
             if spatial_index is not None:
-                candidates = spatial_index.query_overlapping(bc, self.config.merge_threshold)
+                candidates = spatial_index.query_overlapping(
+                    bc, self.config.merge_threshold
+                )
             else:
                 # Fallback to filtered scan
                 candidates = self._find_candidates_filtered(
@@ -233,73 +231,133 @@ class OptimizedAggregator:
         self,
         sorted_biclusters: List[Bicluster],
         spatial_index: Optional[BiclusterSpatialIndex],
-        matrix_shape: Tuple[int, int]
+        matrix_shape: Tuple[int, int],
     ) -> List[Bicluster]:
         """
-        Parallel aggregation using multiprocessing.
+        Two-phase parallel aggregation using ThreadPoolExecutor + spatial index.
 
-        Splits biclusters into batches and processes in parallel.
-        Note: spatial_index cannot be shared across processes, so we use filtered scan.
+        Phase 1: Build overlap graph in parallel (threads share the spatial index).
+                 Thread-safe because spatial_index is read-only after construction
+                 and Jaccard uses numpy boolean ops which release the GIL.
+        Phase 2: Sequential greedy merge using the precomputed overlap graph.
+                 Fast O(n) pass with no Jaccard recomputation.
+
+        Falls back to sequential aggregation if spatial_index is None.
         """
-        self.logger.info(f"  Using parallel aggregation with {self.config.max_workers} workers")
+        if spatial_index is None:
+            self.logger.warning(
+                "  No spatial index available, falling back to sequential aggregation"
+            )
+            return self._aggregate_sequential(
+                sorted_biclusters, spatial_index, matrix_shape
+            )
 
         n = len(sorted_biclusters)
-        batch_size = self.config.batch_size
+        batch_size = self.config.parallel_batch_size
 
-        # Split into batches
+        # --- Phase 1: Parallel overlap graph construction ---
+        self.logger.info(
+            f"  Phase 1: Building overlap graph with {self.config.max_workers} "
+            f"threads ({n:,} biclusters, batch_size={batch_size})"
+        )
+        phase1_start = self._now()
+
         batches = [
-            sorted_biclusters[i:i+batch_size]
-            for i in range(0, n, batch_size)
+            sorted_biclusters[i : i + batch_size] for i in range(0, n, batch_size)
         ]
+        n_batches = len(batches)
+        self.logger.info(f"  Split into {n_batches} batches")
 
-        self.logger.info(f"  Split into {len(batches)} batches of ~{batch_size} biclusters")
+        overlap_graph: Dict[str, Set[str]] = {}
+        completed_batches = 0
+        progress_every = max(1, n_batches // 10)
 
-        # Process batches in parallel
+        with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _batch_query_overlapping,
+                    batch,
+                    spatial_index,
+                    self.config.merge_threshold,
+                ): batch_idx
+                for batch_idx, batch in enumerate(batches)
+            }
+
+            for future in as_completed(futures):
+                batch_idx = futures[future]
+                try:
+                    batch_edges = future.result()
+                    overlap_graph.update(batch_edges)
+                except Exception as e:
+                    self.logger.warning(
+                        f"  Batch {batch_idx} failed: {e}, "
+                        f"biclusters in this batch will be kept as-is"
+                    )
+
+                completed_batches += 1
+                if (
+                    self.config.report_progress
+                    and completed_batches % progress_every == 0
+                ):
+                    pct = 100 * completed_batches / n_batches
+                    self.logger.info(
+                        f"  Phase 1: {completed_batches}/{n_batches} batches ({pct:.0f}%)"
+                    )
+
+        phase1_elapsed = self._now() - phase1_start
+        self.logger.info(
+            f"  Phase 1 complete: {len(overlap_graph):,} entries, "
+            f"{phase1_elapsed:.2f}s"
+        )
+
+        # --- Phase 2: Sequential greedy merge ---
+        self.logger.info("  Phase 2: Greedy merge using overlap graph")
+        phase2_start = self._now()
+
+        id_to_bicluster: Dict[str, Bicluster] = {bc.id: bc for bc in sorted_biclusters}
+
         merged: List[Bicluster] = []
         processed_ids: Set[str] = set()
 
-        with ProcessPoolExecutor(max_workers=self.config.max_workers) as executor:
-            # Submit batch comparison tasks
-            futures = []
-            for batch_idx, batch in enumerate(batches):
-                # For each bicluster in batch, find similar ones in remaining biclusters
-                future = executor.submit(
-                    _batch_find_similar,
-                    batch,
-                    sorted_biclusters,
-                    self.config.merge_threshold,
-                    self.config.early_termination,
-                    self.config.size_diff_threshold
+        progress_interval = (
+            10000
+            if n > 100000
+            else 1000 if n > 10000 else self.config.progress_interval
+        )
+
+        for idx, bc in enumerate(sorted_biclusters):
+            if bc.id in processed_ids:
+                continue
+
+            if self.config.report_progress and idx % progress_interval == 0:
+                progress_pct = 100 * idx / n
+                self.logger.info(
+                    f"  Phase 2: {idx:,}/{n:,} ({progress_pct:.1f}%), "
+                    f"{len(merged):,} merged so far"
                 )
-                futures.append((batch_idx, future))
 
-            # Collect results
-            for batch_idx, future in futures:
-                try:
-                    batch_results = future.result()
+            neighbor_ids = overlap_graph.get(bc.id, set())
+            active_neighbor_ids = neighbor_ids - processed_ids
 
-                    for bc, similar_ids in batch_results:
-                        if bc.id in processed_ids:
-                            continue
+            if not active_neighbor_ids:
+                merged.append(bc)
+                processed_ids.add(bc.id)
+            else:
+                similar = [bc] + [
+                    id_to_bicluster[nid]
+                    for nid in active_neighbor_ids
+                    if nid in id_to_bicluster
+                ]
+                merged_bc = self._merge_similar_biclusters(similar)
+                merged.append(merged_bc)
+                for s in similar:
+                    processed_ids.add(s.id)
 
-                        # Get similar biclusters
-                        similar = [bc] + [
-                            other for other in sorted_biclusters
-                            if other.id in similar_ids and other.id not in processed_ids
-                        ]
-
-                        if len(similar) == 1:
-                            merged.append(bc)
-                        else:
-                            merged_bc = self._merge_similar_biclusters(similar)
-                            merged.append(merged_bc)
-
-                        # Mark as processed
-                        for s in similar:
-                            processed_ids.add(s.id)
-
-                except Exception as e:
-                    self.logger.warning(f"Batch {batch_idx} failed: {e}, skipping")
+        phase2_elapsed = self._now() - phase2_start
+        self.logger.info(
+            f"  Phase 2 complete: {len(merged):,} unique biclusters, "
+            f"{phase2_elapsed:.2f}s"
+        )
 
         return merged
 
@@ -307,7 +365,7 @@ class OptimizedAggregator:
         self,
         bicluster: Bicluster,
         all_biclusters: List[Bicluster],
-        processed_ids: Set[str]
+        processed_ids: Set[str],
     ) -> List[Bicluster]:
         """
         Find candidate biclusters with early termination heuristics.
@@ -340,11 +398,7 @@ class OptimizedAggregator:
 
         return candidates
 
-    def _get_cached_jaccard(
-        self,
-        bc1: Bicluster,
-        bc2: Bicluster
-    ) -> float:
+    def _get_cached_jaccard(self, bc1: Bicluster, bc2: Bicluster) -> float:
         """
         Get Jaccard index with caching.
 
@@ -370,10 +424,7 @@ class OptimizedAggregator:
 
         return jaccard
 
-    def _merge_similar_biclusters(
-        self,
-        biclusters: List[Bicluster]
-    ) -> Bicluster:
+    def _merge_similar_biclusters(self, biclusters: List[Bicluster]) -> Bicluster:
         """
         Merge multiple similar biclusters into one.
 
@@ -408,68 +459,49 @@ class OptimizedAggregator:
             col_indices=merged_cols,
             score=merged_score,
             metadata={
-                'merged_from': len(biclusters),
-                'merge_method': 'optimized_aggregation',
-                'source_ids': [bc.id for bc in biclusters]
-            }
+                "merged_from": len(biclusters),
+                "merge_method": "optimized_aggregation",
+                "source_ids": [bc.id for bc in biclusters],
+            },
         )
 
     @staticmethod
     def _now():
         """Get current time for performance measurement."""
-        import time
         return time.time()
 
 
-# Helper function for parallel processing (must be top-level for pickling)
-def _batch_find_similar(
+def _batch_query_overlapping(
     batch: List[Bicluster],
-    all_biclusters: List[Bicluster],
+    spatial_index: BiclusterSpatialIndex,
     merge_threshold: float,
-    early_termination: bool,
-    size_diff_threshold: float
-) -> List[Tuple[Bicluster, Set[str]]]:
+) -> Dict[str, Set[str]]:
     """
-    Find similar biclusters for a batch (parallelizable function).
+    Build overlap graph edges for a batch of biclusters using the spatial index.
+
+    Thread-safe: spatial_index is read-only after construction, and Jaccard
+    uses numpy boolean ops which release the GIL.
+
+    Args:
+        batch: Biclusters to query
+        spatial_index: Shared read-only spatial index
+        merge_threshold: Jaccard threshold for overlap
 
     Returns:
-        List of (bicluster, set_of_similar_ids)
+        Dict mapping bicluster_id -> set of overlapping bicluster_ids
     """
-    results = []
-
+    overlap_edges: Dict[str, Set[str]] = {}
     for bc in batch:
-        similar_ids = set()
-        bc_size = bc.size
-
-        for other in all_biclusters:
-            if other.id == bc.id:
-                continue
-
-            # Early termination heuristic
-            if early_termination:
-                other_size = other.size
-                size_ratio = min(bc_size, other_size) / max(bc_size, other_size)
-                if size_ratio < (1 - size_diff_threshold):
-                    continue
-
-            # Compute Jaccard
-            try:
-                jaccard = bc.jaccard_index(other)
-                if jaccard > merge_threshold:
-                    similar_ids.add(other.id)
-            except (ValueError, Exception):
-                continue
-
-        results.append((bc, similar_ids))
-
-    return results
+        neighbors = spatial_index.query_overlapping(bc, merge_threshold)
+        overlap_edges[bc.id] = {n.id for n in neighbors}
+    return overlap_edges
 
 
 def create_optimized_aggregator(
     merge_threshold: float = 0.3,
     use_parallel: bool = True,
     max_workers: int = 4,
-    grid_size: int = 20
+    grid_size: int = 500,
 ) -> OptimizedAggregator:
     """
     Factory function to create optimized aggregator with common settings.
@@ -497,7 +529,7 @@ def create_optimized_aggregator(
         max_workers=max_workers,
         grid_size=grid_size,
         use_spatial_index=True,
-        use_cache=True
+        use_cache=True,
     )
 
     return OptimizedAggregator(config)
