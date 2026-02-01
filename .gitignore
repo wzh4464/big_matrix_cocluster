@@ -8,9 +8,12 @@ uv.lock
 .coverage
 lcov.info
 
-# Experiment results
+# Experiment results and logs
 experiment/*_results/
 experiment/*.log
+classic4_results/
+classic4_experiment.log
+*.experiment.log
 
 # Biclustering results
 biclustering_results/
@@ -18,3 +21,4 @@ biclustering_results/
 # Claude and Serena
 .claude/
 .serena/
+serena_config.yml
