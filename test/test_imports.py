@@ -142,9 +142,6 @@ def test_relative_imports_in_detection_optimized():
 
 def test_no_circular_imports():
     """测试没有循环导入。"""
-    import importlib
-
-    # 尝试重新加载关键模块，检测循环导入
     modules_to_test = [
         "src.bicluster",
         "src.core",
@@ -155,12 +152,17 @@ def test_no_circular_imports():
         "src.pipeline",
     ]
 
+    # 在子进程中逐个导入，避免 reload 污染 enum 等全局状态
     for module_name in modules_to_test:
-        try:
-            module = importlib.import_module(module_name)
-            importlib.reload(module)
-        except ImportError as e:
-            pytest.fail(f"Circular import detected in {module_name}: {e}")
+        result = subprocess.run(
+            [sys.executable, "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, (
+            f"Circular import detected in {module_name}: {result.stderr}"
+        )
 
 
 def test_package_structure():

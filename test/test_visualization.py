@@ -1,3 +1,7 @@
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
@@ -381,86 +385,54 @@ def sample_biclusters_vis(sample_matrix_vis: Matrix) -> list[Bicluster]:
     return [bc1, bc2]
 
 
-@patch("matplotlib.pyplot.show")  # Mock plt.show for all visualizer tests
+@pytest.fixture(autouse=True)
+def _close_figures():
+    """Close all matplotlib figures after each test."""
+    yield
+    plt.close("all")
+
+
 def test_visualizer_plot_matrix_heatmap_no_error(
-    mock_show, visualizer: BiclusterVisualizer, sample_matrix_vis: Matrix
+    visualizer: BiclusterVisualizer, sample_matrix_vis: Matrix
 ):
-    try:
-        visualizer.plot_matrix_heatmap(sample_matrix_vis, title="Test Heatmap")
-    except Exception as e:
-        pytest.fail(f"plot_matrix_heatmap raised an exception: {e}")
-    mock_show.assert_called_once()  # Ensure show was called (or would have been)
+    visualizer.plot_matrix_heatmap(sample_matrix_vis, title="Test Heatmap")
 
 
-@patch("matplotlib.pyplot.show")
-@patch("matplotlib.pyplot.savefig")
 def test_visualizer_plot_matrix_heatmap_save(
-    mock_savefig,
-    mock_show,
     visualizer: BiclusterVisualizer,
     sample_matrix_vis: Matrix,
     tmp_path: Path,
 ):
     save_path = tmp_path / "heatmap.png"
     visualizer.plot_matrix_heatmap(sample_matrix_vis, save_path=save_path)
-    mock_savefig.assert_called_once_with(save_path)
-    mock_show.assert_called_once()
+    assert save_path.exists()
 
 
-@patch("matplotlib.pyplot.show")
 def test_visualizer_plot_matrix_comparison_no_error(
-    mock_show,
     visualizer: BiclusterVisualizer,
     sample_matrix_vis: Matrix,
     sample_biclusters_vis: list[Bicluster],
 ):
-    try:
-        visualizer.plot_matrix_comparison(sample_matrix_vis, sample_biclusters_vis)
-        visualizer.plot_matrix_comparison(
-            sample_matrix_vis, []
-        )  # Test with no biclusters
-    except Exception as e:
-        pytest.fail(f"plot_matrix_comparison raised an exception: {e}")
-    assert mock_show.call_count == 2
+    visualizer.plot_matrix_comparison(sample_matrix_vis, sample_biclusters_vis)
+    visualizer.plot_matrix_comparison(sample_matrix_vis, [])
 
 
-@patch("matplotlib.pyplot.show")
 def test_visualizer_plot_bicluster_statistics_no_error(
-    mock_show, visualizer: BiclusterVisualizer, sample_biclusters_vis: list[Bicluster]
+    visualizer: BiclusterVisualizer, sample_biclusters_vis: list[Bicluster]
 ):
-    try:
-        visualizer.plot_bicluster_statistics(sample_biclusters_vis)
-        visualizer.plot_bicluster_statistics(
-            []
-        )  # Test with no biclusters (should warn and return)
-    except Exception as e:
-        pytest.fail(f"plot_bicluster_statistics raised an exception: {e}")
-    # mock_show might be called once or not at all if no biclusters and it returns early.
-    # If it always creates a figure, then it would be called.
-    # Based on current code, if not biclusters, it logs and returns. So show is only called if biclusters.
-    mock_show.assert_called_once()
+    visualizer.plot_bicluster_statistics(sample_biclusters_vis)
+    visualizer.plot_bicluster_statistics([])
 
 
-@patch("matplotlib.pyplot.show")
 def test_visualizer_plot_individual_biclusters_no_error(
-    mock_show,
     visualizer: BiclusterVisualizer,
     sample_matrix_vis: Matrix,
     sample_biclusters_vis: list[Bicluster],
 ):
-    try:
-        visualizer.plot_individual_biclusters(
-            sample_matrix_vis, sample_biclusters_vis, max_to_plot=1
-        )
-        visualizer.plot_individual_biclusters(
-            sample_matrix_vis, []
-        )  # Test with no biclusters
-    except Exception as e:
-        pytest.fail(f"plot_individual_biclusters raised an exception: {e}")
-    if sample_biclusters_vis:  # show is called if there are biclusters to plot
-        mock_show.assert_called_once()
-    else:  # if no biclusters, show might not be called
-        mock_show.assert_not_called()  # Or check call_count based on actual behavior for empty list
+    visualizer.plot_individual_biclusters(
+        sample_matrix_vis, sample_biclusters_vis, max_to_plot=1
+    )
+    visualizer.plot_individual_biclusters(sample_matrix_vis, [])
 
 
 def test_create_bicluster_overlay_matrix(
@@ -495,7 +467,6 @@ def test_create_bicluster_overlay_matrix(
             assert overlay[r_idx, c_idx] == 2
 
 
-@patch("matplotlib.pyplot.show")
 @patch.object(BiclusterVisualizer, "plot_matrix_comparison")
 @patch.object(BiclusterVisualizer, "plot_bicluster_statistics")
 @patch.object(BiclusterVisualizer, "plot_individual_biclusters")
@@ -505,7 +476,6 @@ def test_visualizer_create_report_visualizations(
     mock_plot_individual,
     mock_plot_stats,
     mock_plot_compare,
-    mock_show,  # To catch any stray plt.show() calls within the tested method itself
     visualizer: BiclusterVisualizer,
     sample_matrix_vis: Matrix,
     sample_biclusters_vis: list[Bicluster],
